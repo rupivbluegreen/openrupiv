@@ -1,0 +1,64 @@
+{
+  "prompt": "A project tracker for a small team. Projects have a unique name, a budget, a due date, and a phase that is planned, active or done, starting at planned. Projects can be labelled with many tags and a tag can apply to many projects; tags have a unique label. Members and leads use the app: a lead can kick off a planned project only when its budget is greater than zero, and any active project can be completed once its due date is set. Pages: a project list, a project form, and a tag list.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": {
+      "name": "Project Tracker",
+      "slug": "project-tracker",
+      "version": "0.1.0",
+      "roles": ["member", "lead"]
+    },
+    "entities": [
+      {
+        "name": "Project",
+        "fields": [
+          { "name": "name", "type": "string", "required": true, "unique": true },
+          { "name": "budget", "type": "number" },
+          { "name": "dueDate", "type": "date" },
+          {
+            "name": "phase",
+            "type": "enum",
+            "required": true,
+            "values": ["planned", "active", "done"],
+            "default": "planned"
+          }
+        ],
+        "relations": [{ "name": "tags", "kind": "manyToMany", "to": "Tag" }]
+      },
+      {
+        "name": "Tag",
+        "fields": [{ "name": "label", "type": "string", "required": true, "unique": true }]
+      }
+    ],
+    "pages": [
+      { "name": "projects", "type": "list", "entity": "Project" },
+      { "name": "project-form", "type": "form", "entity": "Project" },
+      { "name": "tags", "type": "list", "entity": "Tag" }
+    ],
+    "workflows": [
+      {
+        "name": "project-lifecycle",
+        "entity": "Project",
+        "stateField": "phase",
+        "initial": "planned",
+        "transitions": [
+          {
+            "name": "kick-off",
+            "from": "planned",
+            "to": "active",
+            "guard": {
+              "roles": ["lead"],
+              "require": [{ "field": "budget", "op": "gt", "value": 0 }]
+            }
+          },
+          {
+            "name": "complete",
+            "from": "active",
+            "to": "done",
+            "guard": { "require": [{ "field": "dueDate", "op": "set" }] }
+          }
+        ]
+      }
+    ]
+  }
+}

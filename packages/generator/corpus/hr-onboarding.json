@@ -1,0 +1,40 @@
+{
+  "prompt": "An employee onboarding tracker. Departments have a unique name. Employees have a first name, a last name, a unique email, a start date, and belong to a department. Onboarding tasks have a title, a due date, a done flag (not done by default) and reference an employee. Show lists for departments, employees and tasks, plus a form for each.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Employee Onboarding", "slug": "employee-onboarding", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Department",
+        "fields": [{ "name": "name", "type": "string", "required": true, "unique": true }]
+      },
+      {
+        "name": "Employee",
+        "fields": [
+          { "name": "firstName", "type": "string", "required": true },
+          { "name": "lastName", "type": "string", "required": true },
+          { "name": "email", "type": "string", "required": true, "unique": true },
+          { "name": "startDate", "type": "date" },
+          { "name": "department", "type": "reference", "entity": "Department", "required": true }
+        ]
+      },
+      {
+        "name": "OnboardingTask",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "dueDate", "type": "date" },
+          { "name": "done", "type": "boolean", "default": false },
+          { "name": "employee", "type": "reference", "entity": "Employee", "required": true }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "departments", "type": "list", "entity": "Department" },
+      { "name": "department-form", "type": "form", "entity": "Department" },
+      { "name": "employees", "type": "list", "entity": "Employee" },
+      { "name": "employee-form", "type": "form", "entity": "Employee" },
+      { "name": "onboarding-tasks", "type": "list", "entity": "OnboardingTask" },
+      { "name": "onboarding-task-form", "type": "form", "entity": "OnboardingTask" }
+    ]
+  }
+}

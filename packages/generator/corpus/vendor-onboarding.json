@@ -1,0 +1,105 @@
+{
+  "prompt": "An approval workflow for vendor onboarding with 4-eyes review. Vendors have a name (unique), a contact email, a country, and a risk tier of low, medium or high defaulting to medium. A vendor application references a vendor, carries a justification and an expected annual spend, and moves through draft, submitted, in_review, approved and rejected states, starting as draft. Requesters submit applications, reviewers start the review, and approval requires two distinct approvers drawn from the reviewer and compliance roles; reviewers or compliance can also reject. Pages: a vendor list, a vendor form, an application list showing vendor, status and annual spend, an application detail page, and an application form for vendor, justification and annual spend.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": {
+      "name": "Vendor Onboarding",
+      "slug": "vendor-onboarding",
+      "description": "Approval workflow for onboarding new vendors with 4-eyes review.",
+      "version": "0.1.0",
+      "roles": ["requester", "reviewer", "compliance"]
+    },
+    "entities": [
+      {
+        "name": "Vendor",
+        "description": "A company we may do business with.",
+        "fields": [
+          { "name": "name", "type": "string", "required": true, "unique": true },
+          { "name": "contactEmail", "type": "string", "required": true },
+          { "name": "country", "type": "string" },
+          {
+            "name": "riskTier",
+            "type": "enum",
+            "values": ["low", "medium", "high"],
+            "default": "medium"
+          }
+        ]
+      },
+      {
+        "name": "VendorApplication",
+        "description": "A request to onboard a vendor.",
+        "fields": [
+          { "name": "vendor", "type": "reference", "entity": "Vendor", "required": true },
+          { "name": "justification", "type": "text", "required": true },
+          { "name": "annualSpend", "type": "number" },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["draft", "submitted", "in_review", "approved", "rejected"],
+            "default": "draft"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "vendors", "type": "list", "entity": "Vendor", "title": "Vendors" },
+      { "name": "vendor-form", "type": "form", "entity": "Vendor", "title": "New vendor" },
+      {
+        "name": "applications",
+        "type": "list",
+        "entity": "VendorApplication",
+        "title": "Applications",
+        "fields": ["vendor", "status", "annualSpend"]
+      },
+      {
+        "name": "application-detail",
+        "type": "detail",
+        "entity": "VendorApplication",
+        "title": "Application"
+      },
+      {
+        "name": "application-form",
+        "type": "form",
+        "entity": "VendorApplication",
+        "title": "New application",
+        "fields": ["vendor", "justification", "annualSpend"]
+      }
+    ],
+    "workflows": [
+      {
+        "name": "vendor-approval",
+        "entity": "VendorApplication",
+        "stateField": "status",
+        "initial": "draft",
+        "transitions": [
+          {
+            "name": "submit",
+            "from": "draft",
+            "to": "submitted",
+            "guard": { "roles": ["requester"] }
+          },
+          {
+            "name": "start-review",
+            "from": "submitted",
+            "to": "in_review",
+            "guard": { "roles": ["reviewer"] }
+          },
+          {
+            "name": "approve",
+            "from": "in_review",
+            "to": "approved",
+            "guard": { "roles": ["reviewer", "compliance"] },
+            "approval": { "count": 2, "roles": ["reviewer", "compliance"] }
+          },
+          {
+            "name": "reject",
+            "from": "in_review",
+            "to": "rejected",
+            "guard": { "roles": ["reviewer", "compliance"] }
+          }
+        ]
+      }
+    ]
+  }
+}

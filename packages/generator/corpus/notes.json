@@ -1,0 +1,16 @@
+{
+  "prompt": "A tiny personal notes app. A note has a title and a body of free text. Nothing else - no users, no workflow, no pages beyond the defaults.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Notes", "slug": "notes", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Note",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "body", "type": "text" }
+        ]
+      }
+    ]
+  }
+}

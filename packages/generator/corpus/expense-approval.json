@@ -1,0 +1,62 @@
+{
+  "prompt": "An expense report tool. Employees file expense reports with a title, an amount and a receipt note. A report starts as draft, is submitted by the employee, and then a manager either approves or rejects it - a single manager sign-off is enough, no dual approval needed. Pages: a report list, a report detail page and a form to file a report.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": {
+      "name": "Expense Reports",
+      "slug": "expense-reports",
+      "version": "0.1.0",
+      "roles": ["employee", "manager"]
+    },
+    "entities": [
+      {
+        "name": "ExpenseReport",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "amount", "type": "number", "required": true },
+          { "name": "receiptNote", "type": "text" },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["draft", "submitted", "approved", "rejected"],
+            "default": "draft"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "expense-reports", "type": "list", "entity": "ExpenseReport" },
+      { "name": "expense-report-detail", "type": "detail", "entity": "ExpenseReport" },
+      { "name": "expense-report-form", "type": "form", "entity": "ExpenseReport" }
+    ],
+    "workflows": [
+      {
+        "name": "expense-approval",
+        "entity": "ExpenseReport",
+        "stateField": "status",
+        "initial": "draft",
+        "transitions": [
+          {
+            "name": "submit",
+            "from": "draft",
+            "to": "submitted",
+            "guard": { "roles": ["employee"] }
+          },
+          {
+            "name": "approve",
+            "from": "submitted",
+            "to": "approved",
+            "guard": { "roles": ["manager"] }
+          },
+          {
+            "name": "reject",
+            "from": "submitted",
+            "to": "rejected",
+            "guard": { "roles": ["manager"] }
+          }
+        ]
+      }
+    ]
+  }
+}

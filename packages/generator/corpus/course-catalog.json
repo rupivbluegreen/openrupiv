@@ -1,0 +1,28 @@
+{
+  "prompt": "A course catalog for a training team. Courses have a title, a description, and a duration in hours. Topics have a unique name. A course can cover many topics and a topic can apply to many courses. List courses and topics, with forms to add both.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Course Catalog", "slug": "course-catalog", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Course",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "description", "type": "text" },
+          { "name": "durationHours", "type": "number" }
+        ],
+        "relations": [{ "name": "topics", "kind": "manyToMany", "to": "Topic" }]
+      },
+      {
+        "name": "Topic",
+        "fields": [{ "name": "name", "type": "string", "required": true, "unique": true }]
+      }
+    ],
+    "pages": [
+      { "name": "courses", "type": "list", "entity": "Course" },
+      { "name": "course-form", "type": "form", "entity": "Course" },
+      { "name": "topics", "type": "list", "entity": "Topic" },
+      { "name": "topic-form", "type": "form", "entity": "Topic" }
+    ]
+  }
+}

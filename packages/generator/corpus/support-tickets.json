@@ -1,0 +1,42 @@
+{
+  "prompt": "A support ticket tracker. A ticket has a subject, a description, a priority of low, medium, high or urgent, a category of billing, technical, account or other, a channel of email, phone, chat or web, and a status of open, pending, resolved or closed that defaults to open. Show a list of tickets and a form to file a new one.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Support Tickets", "slug": "support-tickets", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Ticket",
+        "fields": [
+          { "name": "subject", "type": "string", "required": true },
+          { "name": "description", "type": "text" },
+          {
+            "name": "priority",
+            "type": "enum",
+            "values": ["low", "medium", "high", "urgent"]
+          },
+          {
+            "name": "category",
+            "type": "enum",
+            "values": ["billing", "technical", "account", "other"]
+          },
+          {
+            "name": "channel",
+            "type": "enum",
+            "values": ["email", "phone", "chat", "web"]
+          },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["open", "pending", "resolved", "closed"],
+            "default": "open"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "tickets", "type": "list", "entity": "Ticket", "title": "Tickets" },
+      { "name": "ticket-form", "type": "form", "entity": "Ticket", "title": "File a ticket" }
+    ]
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "prompt": "A leave request workflow. Employees request leave with a start date, an end date, a number of days and a reason. A request starts as draft and can only be submitted by the employee when the number of days is greater than zero and a start date is set. Approval requires two distinct HR reviewers before the request becomes approved; HR can also reject a submitted request. Pages: a leave request list and a form to file one.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": {
+      "name": "Leave Requests",
+      "slug": "leave-requests",
+      "version": "0.1.0",
+      "roles": ["employee", "hr"]
+    },
+    "entities": [
+      {
+        "name": "LeaveRequest",
+        "fields": [
+          { "name": "startDate", "type": "date" },
+          { "name": "endDate", "type": "date" },
+          { "name": "days", "type": "number", "required": true },
+          { "name": "reason", "type": "text" },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["draft", "submitted", "approved", "rejected"],
+            "default": "draft"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "leave-requests", "type": "list", "entity": "LeaveRequest" },
+      { "name": "leave-request-form", "type": "form", "entity": "LeaveRequest" }
+    ],
+    "workflows": [
+      {
+        "name": "leave-approval",
+        "entity": "LeaveRequest",
+        "stateField": "status",
+        "initial": "draft",
+        "transitions": [
+          {
+            "name": "submit",
+            "from": "draft",
+            "to": "submitted",
+            "guard": {
+              "roles": ["employee"],
+              "require": [
+                { "field": "days", "op": "gt", "value": 0 },
+                { "field": "startDate", "op": "set" }
+              ]
+            }
+          },
+          {
+            "name": "approve",
+            "from": "submitted",
+            "to": "approved",
+            "guard": { "roles": ["hr"] },
+            "approval": { "count": 2, "roles": ["hr"] }
+          },
+          {
+            "name": "reject",
+            "from": "submitted",
+            "to": "rejected",
+            "guard": { "roles": ["hr"] }
+          }
+        ]
+      }
+    ]
+  }
+}

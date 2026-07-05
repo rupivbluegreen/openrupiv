@@ -1,0 +1,74 @@
+{
+  "prompt": "An internal helpdesk with fine-grained roles: customers file requests, agents work on them, supervisors handle escalations, admins can close anything, and auditors have a read-only role. A request has a subject, a body, a severity of low, medium or high, and a status of new, triaged, escalated, resolved or closed, starting at new. Agents, supervisors or admins triage new requests; agents can escalate a triaged request; agents or supervisors resolve triaged requests; supervisors or admins resolve escalated ones; only admins close resolved requests. Pages: a request list, a request detail page and a request form.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": {
+      "name": "Internal Helpdesk",
+      "slug": "internal-helpdesk",
+      "version": "0.1.0",
+      "roles": ["customer", "agent", "supervisor", "admin", "auditor"]
+    },
+    "entities": [
+      {
+        "name": "Request",
+        "fields": [
+          { "name": "subject", "type": "string", "required": true },
+          { "name": "body", "type": "text" },
+          { "name": "severity", "type": "enum", "values": ["low", "medium", "high"] },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["new", "triaged", "escalated", "resolved", "closed"],
+            "default": "new"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "requests", "type": "list", "entity": "Request" },
+      { "name": "request-detail", "type": "detail", "entity": "Request" },
+      { "name": "request-form", "type": "form", "entity": "Request" }
+    ],
+    "workflows": [
+      {
+        "name": "request-handling",
+        "entity": "Request",
+        "stateField": "status",
+        "initial": "new",
+        "transitions": [
+          {
+            "name": "triage",
+            "from": "new",
+            "to": "triaged",
+            "guard": { "roles": ["agent", "supervisor", "admin"] }
+          },
+          {
+            "name": "escalate",
+            "from": "triaged",
+            "to": "escalated",
+            "guard": { "roles": ["agent"] }
+          },
+          {
+            "name": "resolve",
+            "from": "triaged",
+            "to": "resolved",
+            "guard": { "roles": ["agent", "supervisor"] }
+          },
+          {
+            "name": "resolve-escalation",
+            "from": "escalated",
+            "to": "resolved",
+            "guard": { "roles": ["supervisor", "admin"] }
+          },
+          {
+            "name": "close",
+            "from": "resolved",
+            "to": "closed",
+            "guard": { "roles": ["admin"] }
+          }
+        ]
+      }
+    ]
+  }
+}
