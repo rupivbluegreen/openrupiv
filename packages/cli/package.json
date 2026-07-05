@@ -1,0 +1,21 @@
+{
+  "name": "@openrupiv/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "openrupiv": "./bin/openrupiv.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@openrupiv/compiler": "workspace:*",
+    "@openrupiv/generator": "workspace:*",
+    "@openrupiv/spec": "workspace:*",
+    "commander": "^15.0.0",
+    "yaml": "^2.9.0"
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "name": "@openrupiv/spec",
+  "name": "@openrupiv/generator",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -9,9 +9,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "tsx src/eval.ts"
   },
   "dependencies": {
-    "ajv": "^8.17.1"
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@openrupiv/spec": "workspace:*"
   }
 }

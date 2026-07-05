@@ -1,5 +1,5 @@
 {
-  "name": "@openrupiv/spec",
+  "name": "@openrupiv/compiler",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -12,6 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "ajv": "^8.17.1"
+    "@openrupiv/spec": "workspace:*"
   }
 }
