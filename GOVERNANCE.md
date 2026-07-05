@@ -10,7 +10,7 @@
 **openRupiv** is a personally sponsored project, currently maintained by a
 single maintainer (@rupivbluegreen) — no employer or corporate sponsor holds
 any rights or influence over it; future sponsorships, if any, come through
-the non-paywall funding paths in PLAN.md §8 and never buy decision power.
+the non-paywall funding paths in PLAN.md §7 and never buy decision power.
 During this phase the maintainer makes final decisions on
 all matters, with two standing constraints:
 
