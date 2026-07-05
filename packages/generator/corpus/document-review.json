@@ -1,0 +1,62 @@
+{
+  "prompt": "A policy document publishing workflow with 4-eyes review. Documents have a title, body text, and a status of draft, in_review, published or archived, starting as draft. Authors send drafts to review; publishing needs sign-off from two different editors; any editor can archive a published document. Pages: a document list, a document detail page and a document form.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": {
+      "name": "Policy Documents",
+      "slug": "policy-documents",
+      "version": "0.1.0",
+      "roles": ["author", "editor"]
+    },
+    "entities": [
+      {
+        "name": "Document",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "body", "type": "text", "required": true },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["draft", "in_review", "published", "archived"],
+            "default": "draft"
+          }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "documents", "type": "list", "entity": "Document" },
+      { "name": "document-detail", "type": "detail", "entity": "Document" },
+      { "name": "document-form", "type": "form", "entity": "Document" }
+    ],
+    "workflows": [
+      {
+        "name": "document-publishing",
+        "entity": "Document",
+        "stateField": "status",
+        "initial": "draft",
+        "transitions": [
+          {
+            "name": "submit-for-review",
+            "from": "draft",
+            "to": "in_review",
+            "guard": { "roles": ["author"] }
+          },
+          {
+            "name": "publish",
+            "from": "in_review",
+            "to": "published",
+            "guard": { "roles": ["editor"] },
+            "approval": { "count": 2, "roles": ["editor"] }
+          },
+          {
+            "name": "archive",
+            "from": "published",
+            "to": "archived",
+            "guard": { "roles": ["editor"] }
+          }
+        ]
+      }
+    ]
+  }
+}

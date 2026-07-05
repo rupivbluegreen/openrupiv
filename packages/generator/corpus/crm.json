@@ -1,0 +1,43 @@
+{
+  "prompt": "A simple CRM. Companies have a unique name, a website and an industry. Contacts have a first name, a last name, an email, and belong to a company. Deals reference a company and a contact and have an amount and a close date. Pages: lists of companies, contacts and deals, plus a form to create each.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Simple CRM", "slug": "simple-crm", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Company",
+        "fields": [
+          { "name": "name", "type": "string", "required": true, "unique": true },
+          { "name": "website", "type": "string" },
+          { "name": "industry", "type": "string" }
+        ]
+      },
+      {
+        "name": "Contact",
+        "fields": [
+          { "name": "firstName", "type": "string", "required": true },
+          { "name": "lastName", "type": "string", "required": true },
+          { "name": "email", "type": "string" },
+          { "name": "company", "type": "reference", "entity": "Company", "required": true }
+        ]
+      },
+      {
+        "name": "Deal",
+        "fields": [
+          { "name": "company", "type": "reference", "entity": "Company", "required": true },
+          { "name": "contact", "type": "reference", "entity": "Contact" },
+          { "name": "amount", "type": "number" },
+          { "name": "closeDate", "type": "date" }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "companies", "type": "list", "entity": "Company" },
+      { "name": "company-form", "type": "form", "entity": "Company" },
+      { "name": "contacts", "type": "list", "entity": "Contact" },
+      { "name": "contact-form", "type": "form", "entity": "Contact" },
+      { "name": "deals", "type": "list", "entity": "Deal" },
+      { "name": "deal-form", "type": "form", "entity": "Deal" }
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "prompt": "A small library catalog to track books. Each book has a title, an author, a unique ISBN, a page count, and a flag for whether it is currently available (available by default). I want a list of all books, a book detail page, and a form to add new books.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Library Catalog", "slug": "library-catalog", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Book",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "author", "type": "string", "required": true },
+          { "name": "isbn", "type": "string", "required": true, "unique": true },
+          { "name": "pageCount", "type": "number" },
+          { "name": "available", "type": "boolean", "default": true }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "books", "type": "list", "entity": "Book", "title": "Books" },
+      { "name": "book-detail", "type": "detail", "entity": "Book" },
+      { "name": "book-form", "type": "form", "entity": "Book", "title": "Add book" }
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "prompt": "An inventory management app. Products have a name, a unique SKU and a unit price. Warehouses have a name and a location. Stock movements reference a product and a warehouse and record a quantity, a movement type of inbound, outbound or adjustment, and a movement date. Lists for products, warehouses and stock movements, with a form for each.",
+  "expected": {
+    "specVersion": "0.1",
+    "app": { "name": "Inventory Management", "slug": "inventory-management", "version": "0.1.0" },
+    "entities": [
+      {
+        "name": "Product",
+        "fields": [
+          { "name": "name", "type": "string", "required": true },
+          { "name": "sku", "type": "string", "required": true, "unique": true },
+          { "name": "unitPrice", "type": "number" }
+        ]
+      },
+      {
+        "name": "Warehouse",
+        "fields": [
+          { "name": "name", "type": "string", "required": true },
+          { "name": "location", "type": "string" }
+        ]
+      },
+      {
+        "name": "StockMovement",
+        "fields": [
+          { "name": "product", "type": "reference", "entity": "Product", "required": true },
+          { "name": "warehouse", "type": "reference", "entity": "Warehouse", "required": true },
+          { "name": "quantity", "type": "number", "required": true },
+          {
+            "name": "movementType",
+            "type": "enum",
+            "required": true,
+            "values": ["inbound", "outbound", "adjustment"]
+          },
+          { "name": "movementDate", "type": "date" }
+        ]
+      }
+    ],
+    "pages": [
+      { "name": "products", "type": "list", "entity": "Product" },
+      { "name": "product-form", "type": "form", "entity": "Product" },
+      { "name": "warehouses", "type": "list", "entity": "Warehouse" },
+      { "name": "warehouse-form", "type": "form", "entity": "Warehouse" },
+      { "name": "stock-movements", "type": "list", "entity": "StockMovement" },
+      { "name": "stock-movement-form", "type": "form", "entity": "StockMovement" }
+    ]
+  }
+}
