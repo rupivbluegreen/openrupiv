@@ -29,6 +29,12 @@ export interface WorkspaceFile {
 export const DEV_OIDC_CLIENT_ID = "openrupiv-local";
 export const DEV_OIDC_CLIENT_SECRET = "openrupiv-dev-secret";
 export const DEV_USER_EMAIL = "dev@example.com";
+/**
+ * Second dev user (distinct sub) so n-eyes approval flows are demoable
+ * locally: the runtime's distinct-approver rule can be satisfied for real,
+ * and its same-user 409 can be demonstrated.
+ */
+export const DEV_USER2_EMAIL = "dev2@example.com";
 export const DEV_USER_PASSWORD = "dev-password";
 /** bcrypt("dev-password"), cost 10 — verified round-trip when generated. */
 export const DEV_USER_PASSWORD_BCRYPT =
@@ -160,7 +166,7 @@ function dexConfigYaml(): string {
 #
 # =====================================================================
 #  DEV ONLY — STATIC, PUBLICLY-KNOWN CREDENTIALS.
-#    user:         ${DEV_USER_EMAIL} / ${DEV_USER_PASSWORD}
+#    users:        ${DEV_USER_EMAIL} and ${DEV_USER2_EMAIL} (both: ${DEV_USER_PASSWORD})
 #    OIDC client:  ${DEV_OIDC_CLIENT_ID} / ${DEV_OIDC_CLIENT_SECRET}
 #  Anyone with this file can log in. Never expose beyond localhost;
 #  never reuse these values. Production replaces this entire service
@@ -201,6 +207,12 @@ staticPasswords:
     hash: "${DEV_USER_PASSWORD_BCRYPT}"
     username: dev
     userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
+  # Second user (distinct sub) so 4-eyes approvals work in the quickstart.
+  - email: ${DEV_USER2_EMAIL}
+    # bcrypt("${DEV_USER_PASSWORD}"), cost 10.
+    hash: "${DEV_USER_PASSWORD_BCRYPT}"
+    username: dev2
+    userID: 2f7c3d1a-5b0e-4c9a-8d6f-1e2a3b4c5d6e
 `;
 }
 
@@ -246,6 +258,9 @@ docker compose up --build
 
 **4. Log in.** Open <http://localhost:3000>, sign in as
 \`${DEV_USER_EMAIL}\` / \`${DEV_USER_PASSWORD}\`, and use the app.
+A second user, \`${DEV_USER2_EMAIL}\` (same password), exists so
+two-person approval steps (4-eyes) can be completed: approve once as each
+user. In dev mode every user is granted all app roles (ADR-0005).
 
 ## What is running
 
@@ -262,7 +277,7 @@ development works with zero identity configuration (ADR-0002):
 
 | What                 | Value                                        |
 |----------------------|----------------------------------------------|
-| Login user           | \`${DEV_USER_EMAIL}\` / \`${DEV_USER_PASSWORD}\` |
+| Login users          | \`${DEV_USER_EMAIL}\`, \`${DEV_USER2_EMAIL}\` (both: \`${DEV_USER_PASSWORD}\`) |
 | OIDC client          | \`${DEV_OIDC_CLIENT_ID}\` / \`${DEV_OIDC_CLIENT_SECRET}\` |
 | Postgres             | \`openrupiv\` / \`openrupiv-dev-password\`    |
 

@@ -141,6 +141,7 @@ export function registerAuth(
   config: RuntimeConfig,
   logger: Logger,
   provider: OidcProvider,
+  appRoles: readonly string[] = [],
 ): void {
   const secret = config.sessionSecret;
   const redirectUri = `${config.baseUrl.replace(/\/+$/, "")}/auth/callback`;
@@ -275,7 +276,20 @@ export function registerAuth(
       );
     }
 
-    const roles = extractRoles(claims[config.oidc.rolesClaim]);
+    let roles = extractRoles(claims[config.oidc.rolesClaim]);
+    if (roles.length === 0 && config.devMode && appRoles.length > 0) {
+      // ADR-0005: dev-mode-only role grant. The bundled Dex dev IdP cannot
+      // emit a roles claim for static users, so with OPENRUPIV_DEV_MODE=true
+      // (and only then) a user arriving with NO roles is granted every role
+      // the app spec declares. Production deployments are unaffected: with
+      // devMode=false the user simply has no roles and guarded transitions
+      // return 403.
+      roles = [...appRoles];
+      logger.warn(
+        { event: "auth.dev_role_grant", sub: claims.sub, roles },
+        "DEV MODE: granting all app roles to user with no roles claim — never enable OPENRUPIV_DEV_MODE in production",
+      );
+    }
     const email = typeof claims["email"] === "string" ? claims["email"] : undefined;
     const session = createSession({ sub: claims.sub, email, roles });
 

@@ -146,7 +146,10 @@ describe("GET /auth/login", () => {
 });
 
 describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () => {
-  async function login(rolesClaimValue: unknown) {
+  async function login(
+    rolesClaimValue: unknown,
+    configOverride?: ReturnType<typeof testConfig>,
+  ) {
     const idp = makeFakeIdp({
       clientId: "test-client",
       clientSecret: "test-client-secret-not-the-dev-one",
@@ -158,6 +161,7 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
     const db = new FakeDb();
     const { app, logger } = await buildTestServer(spec, db, {
       oidcProvider: idp.provider,
+      ...(configOverride ? { config: configOverride } : {}),
     });
 
     const loginRes = await app.inject({
@@ -276,6 +280,47 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
     });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: "ERR_OIDC_CALLBACK" });
+  });
+
+  function sessionRolesOf(callbackRes: {
+    headers: Record<string, unknown>;
+  }): string[] | false {
+    const sessionValue = setCookies(callbackRes.headers)
+      .find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))
+      ?.split(";")[0]
+      ?.slice(`${SESSION_COOKIE_NAME}=`.length) as string;
+    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET);
+    return verified.ok && verified.payload.roles;
+  }
+
+  it("ADR-0005: devMode grants all app roles when the roles claim is absent, with a warn log", async () => {
+    const { callbackRes, logger } = await login(undefined);
+    expect(sessionRolesOf(callbackRes)).toEqual([
+      "requester",
+      "reviewer",
+      "compliance",
+    ]);
+    const grant = logger.entries.find(
+      (e) => e.fields["event"] === "auth.dev_role_grant",
+    );
+    expect(grant).toBeDefined();
+    expect(grant?.level).toBe("warn");
+  });
+
+  it("ADR-0005: devMode does NOT override a roles claim that is present", async () => {
+    const { callbackRes } = await login(["reviewer"]);
+    expect(sessionRolesOf(callbackRes)).toEqual(["reviewer"]);
+  });
+
+  it("ADR-0005: without devMode a missing roles claim yields no roles", async () => {
+    const { callbackRes, logger } = await login(
+      undefined,
+      testConfig({ devMode: false }),
+    );
+    expect(sessionRolesOf(callbackRes)).toEqual([]);
+    expect(
+      logger.entries.find((e) => e.fields["event"] === "auth.dev_role_grant"),
+    ).toBeUndefined();
   });
 });
 

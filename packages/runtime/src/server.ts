@@ -139,6 +139,7 @@ export async function createServer(
     config,
     logger,
     deps.oidcProvider ?? defaultOidcProvider(config, logger),
+    spec.app.roles ?? [],
   );
   registerEntityRoutes(app, spec, db, logger);
   registerWorkflowRoutes(app, spec, db, logger);
