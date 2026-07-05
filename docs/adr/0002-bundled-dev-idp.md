@@ -30,6 +30,6 @@ production identity — which keeps the pressure to connect a real IdP.
   issuer URL + client credentials" is the entire production migration.
 - The dev Dex config ships with conspicuous non-production markers (dev-only
   credentials, `example.com` users) and the runtime refuses to start with the
-  bundled dev client secret unless an explicit `OPENPLANE_DEV_MODE=true` flag
+  bundled dev client secret unless an explicit `OPENRUPIV_DEV_MODE=true` flag
   is set — the compliant path stays the default path.
 - No password table, no local-auth code path, ever (ADR-0003 holds).

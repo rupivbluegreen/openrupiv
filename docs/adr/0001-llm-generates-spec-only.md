@@ -5,7 +5,7 @@
 
 ## Context
 
-PLAN.md pillar 2 says `openplane generate` emits "a reviewable declarative
+PLAN.md pillar 2 says `openrupiv generate` emits "a reviewable declarative
 spec + generated code" into Git, and §3.2 says "the spec is the contract; UI
 and runtime are projections of it." Those two statements admit two very
 different architectures:
@@ -22,7 +22,7 @@ rate that is not controllable).
 
 ## Decision
 
-The LLM surface ends at the spec. `openplane generate`:
+The LLM surface ends at the spec. `openrupiv generate`:
 
 1. Calls the model to produce a **spec** conforming to the versioned app spec
    schema (validated, retried on schema violation).

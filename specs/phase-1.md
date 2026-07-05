@@ -9,9 +9,9 @@
 **Zero → described app running locally in under 10 minutes.**
 
 ```
-openplane new my-workspace
+openrupiv new my-workspace
 cd my-workspace
-openplane generate "an approval workflow for vendor onboarding with 4-eyes review"
+openrupiv generate "an approval workflow for vendor onboarding with 4-eyes review"
 docker compose up
 # → open browser, log in via OIDC, use the generated app
 ```
@@ -44,7 +44,7 @@ shape but the compiler rejects specs that use them, with a machine-readable
 - **ADR-0001** — LLM generates the spec only; code is a deterministic
   projection. Same spec → byte-identical output.
 - **ADR-0002** — Dex bundled in Compose as dev IdP; runtime refuses the
-  bundled dev client secret unless `OPENPLANE_DEV_MODE=true`.
+  bundled dev client secret unless `OPENRUPIV_DEV_MODE=true`.
 - **ADR-0003** — OIDC only. No password table, no bootstrap admin password,
   no basic-auth fallback.
 
@@ -72,10 +72,10 @@ the same shape: the generator's retry loop and the human's terminal.
 
 ### 2. CLI — `packages/cli`
 
-- `openplane new <name>` — deterministic scaffold: workspace directory with
-  git init, `openplane.yaml` project config, Compose file, README. No network
+- `openrupiv new <name>` — deterministic scaffold: workspace directory with
+  git init, `openrupiv.yaml` project config, Compose file, README. No network
   calls, no LLM.
-- `openplane generate "<description>"` — runs generator → validator → compiler
+- `openrupiv generate "<description>"` — runs generator → validator → compiler
   → writes spec + code + tests, then commits to the workspace repo
   (DCO-signed with the user's git identity) so change management is
   PR-shaped from the very first artifact.
@@ -157,7 +157,7 @@ foundation.
 
 ## Acceptance criteria (human review gate)
 
-1. `openplane new` + `generate` + `docker compose up` + OIDC login + using
+1. `openrupiv new` + `generate` + `docker compose up` + OIDC login + using
    the generated approval-workflow app works end-to-end on a clean machine,
    in under 10 minutes, following only the written quickstart.
 2. The generated app's 4-eyes rule actually enforces two distinct approvers
@@ -168,7 +168,7 @@ foundation.
 4. A generated app passes its own tests standalone, outside the platform.
 5. No password/local-auth code path exists anywhere (grep-level assertion in
    CI is acceptable); runtime refuses bundled dev credentials without
-   `OPENPLANE_DEV_MODE=true`.
+   `OPENRUPIV_DEV_MODE=true`.
 6. Spec sections `policies`/`agents`/`evidence` produce typed rejection, not
    silent omission.
 7. Every package has README + tests; `pnpm typecheck && pnpm lint && pnpm

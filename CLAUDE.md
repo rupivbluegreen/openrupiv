@@ -1,6 +1,6 @@
-# CLAUDE.md — openplane operating contract
+# CLAUDE.md — openrupiv operating contract
 
-`openplane` (codename) is an Apache-2.0, enterprise-ready, agent-native app
+`openRupiv` is an Apache-2.0, enterprise-ready, agent-native app
 development platform where enterprise features (SSO, SCIM, RBAC, audit, HA,
 air-gap) ship free in core. **PLAN.md is the source of truth** for scope,
 roadmap, and rationale — read it before substantive work.

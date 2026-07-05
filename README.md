@@ -1,8 +1,9 @@
-# openplane
+# openRupiv
 
-> ⚠️ **Codename — pre-public.** This repository is in Phase 0 (pre-flight).
-> The name is a placeholder pending trademark clearance, and nothing here is
-> published or released yet. See [PLAN.md](PLAN.md) for the full build plan.
+> ⚠️ **Pre-public.** This repository is private while pre-flight work
+> completes (trademark search and domain registration pending); nothing is
+> released yet. A personally sponsored project, built by one human and
+> Claude Code. See [PLAN.md](PLAN.md) for the full build plan.
 
 **An Apache-2.0, enterprise-ready, agent-native app development platform where
 the enterprise features are the free features.**

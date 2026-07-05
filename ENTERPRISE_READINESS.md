@@ -92,7 +92,7 @@ _Last updated: 2026-07-06 (Phase 0)._
 | GOVERNANCE.md + maintainer ladder | ✅ v0 |
 | Code of conduct | ✅ |
 | RFC process | ✅ defined in GOVERNANCE.md |
-| Trademark + domain | 🚧 name decision pending (Open Decision #1) |
-| GitHub org | 📋 blocked on name + ownership decisions |
+| Trademark + domain | 🚧 name decided (openRupiv, 2026-07-06); trademark search + domain registration pending |
+| GitHub org | ✅ personal account — github.com/rupivbluegreen/openrupiv (private pre-launch) |
 | Telemetry privacy notice | 📋 blocked on Open Decision #4 |
 | Export-control note | 📋 M1 |
