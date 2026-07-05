@@ -37,8 +37,9 @@ function writeCompiledApp(spec: AppSpec): string {
 }
 
 function runAppTests(appDir: string): SpawnSyncReturns<string> {
-  // Exactly the app package.json's test script: `node --test test/`.
-  return spawnSync(process.execPath, ["--test", "test/"], {
+  // Exactly the app package.json's test script: `node --test` (bare form —
+  // positional directory args resolve differently across Node 20/22).
+  return spawnSync(process.execPath, ["--test"], {
     cwd: appDir,
     encoding: "utf8",
     timeout: 60_000,
@@ -47,7 +48,7 @@ function runAppTests(appDir: string): SpawnSyncReturns<string> {
 
 describe("compiled app runs standalone with plain node", () => {
   for (const fixture of fixtures.allFixtures) {
-    it(`${fixture.app.slug}: node --test test/ passes with zero installs`, () => {
+    it(`${fixture.app.slug}: node --test passes with zero installs`, () => {
       const appDir = writeCompiledApp(fixture);
       const run = runAppTests(appDir);
       expect(

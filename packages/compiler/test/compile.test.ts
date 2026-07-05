@@ -68,7 +68,7 @@ describe("compileApp — output contract", () => {
       name: "vendor-onboarding",
       private: true,
       type: "module",
-      scripts: { test: "node --test test/" },
+      scripts: { test: "node --test" },
     });
     expect(Object.keys(pkg)).not.toContain("dependencies");
     expect(Object.keys(pkg)).not.toContain("devDependencies");

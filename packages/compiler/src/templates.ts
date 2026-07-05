@@ -16,7 +16,7 @@ export function renderAppPackageJson(spec: AppSpec): string {
       name: spec.app.slug,
       private: true,
       type: "module",
-      scripts: { test: "node --test test/" },
+      scripts: { test: "node --test" },
     },
     null,
     2,

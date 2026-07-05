@@ -271,7 +271,7 @@ export function renderAppReadme(spec: AppSpec): string {
   lines.push("|---|---|");
   lines.push("| `spec.json` | Canonical app spec — the contract |");
   lines.push("| `migrations/0001_init.sql` | Database schema (versioned, forward-only) |");
-  lines.push("| `package.json`, `test/` | Standalone invariant tests — `node --test test/`, zero dependencies |");
+  lines.push("| `package.json`, `test/` | Standalone invariant tests — `node --test`, zero dependencies |");
   lines.push("| `server.mjs` | Optional entry: serve this directory with `@openrupiv/runtime` |");
   lines.push("");
 
@@ -303,7 +303,7 @@ export function renderAppReadme(spec: AppSpec): string {
 
   lines.push("## Running this app", "");
   lines.push(
-    "- **Tests** (zero installs, Node ≥ 20): `node --test test/`",
+    "- **Tests** (zero installs, Node ≥ 20): `node --test`",
     "- **Serve with the runtime library:** install `@openrupiv/runtime`, then",
     "  `node server.mjs`. Configuration comes from the environment:",
     "  `DATABASE_URL`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,",
