@@ -93,6 +93,6 @@ _Last updated: 2026-07-06 (Phase 0)._
 | Code of conduct | ✅ |
 | RFC process | ✅ defined in GOVERNANCE.md |
 | Trademark + domain | 🚧 name decided (openRupiv, 2026-07-06); trademark search + domain registration pending |
-| GitHub org | ✅ personal account — github.com/rupivbluegreen/openrupiv (private pre-launch) |
+| GitHub org | ✅ personal account — github.com/rupivbluegreen/openrupiv (public since 2026-07-06) |
 | Telemetry privacy notice | 📋 blocked on Open Decision #4 |
 | Export-control note | 📋 M1 |

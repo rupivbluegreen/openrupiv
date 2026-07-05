@@ -1,9 +1,10 @@
 # openRupiv
 
-> ⚠️ **Pre-public.** This repository is private while pre-flight work
-> completes (trademark search and domain registration pending); nothing is
-> released yet. A personally sponsored project, built by one human and
-> Claude Code. See [PLAN.md](PLAN.md) for the full build plan.
+> ⚠️ **Early development — no releases yet.** Phase 1 is being built in the
+> open; APIs and the app spec are unstable until v0.1. Honest capability
+> status lives in [ENTERPRISE_READINESS.md](ENTERPRISE_READINESS.md) — we
+> never claim ahead of that page. A personally sponsored project, built by
+> one human and Claude Code. See [PLAN.md](PLAN.md) for the full build plan.
 
 **An Apache-2.0, enterprise-ready, agent-native app development platform where
 the enterprise features are the free features.**
