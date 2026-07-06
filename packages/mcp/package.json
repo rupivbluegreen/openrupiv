@@ -1,0 +1,20 @@
+{
+  "name": "@openrupiv/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openrupiv/audit": "workspace:*",
+    "@openrupiv/policy": "workspace:*",
+    "fastify": "^5.10.0"
+  }
+}

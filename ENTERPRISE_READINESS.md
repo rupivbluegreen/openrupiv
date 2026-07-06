@@ -50,7 +50,7 @@ auth/authz/audit-integrity paths before these count as shipped)._
 | Retention policies | 📋 M7 |
 | Data-residency config | 📋 M7 |
 | Model/agent registry with AI Act risk classification | 📋 M7 |
-| HITL gates | 📋 M4 |
+| HITL gates | 🚧 `@openrupiv/agents` — governed agent runtime built + tested (deny-by-default tool allowlist, 6-step policy-checked + audited tool calls, atomic propose()-only HITL primitive; agent proposals never touch `workflow_approvals` or fire transitions). `@openrupiv/mcp` — MCP client + server built + tested (deny-by-default egress/exposure, policy-checked + audited both directions). Neither is wired into the runtime yet — no agent can trigger a real proposal and no MCP endpoint is live today; the real Python tool sandbox (ADR-0007) also isn't built, so `ToolSandbox` is fakes-only in these tests |
 | Annex IV / RoPA / DPIA generators | 📋 M7–M8 |
 | Eval harness | 📋 M8 |
 
