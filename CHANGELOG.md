@@ -11,7 +11,13 @@ SemVer once releases begin.
 - **`@openrupiv/audit`** — hash-chained, tamper-evident, append-only audit
   log: pure verifiable chain (every tamper mode tested), Postgres
   append-only store with chain-tail locking, SIEM exporters (JSONL/OTLP/
-  syslog), defense-in-depth secret scrubbing. Runtime wiring next.
+  syslog), defense-in-depth secret scrubbing. Table provisioned by the
+  runtime; event wiring next.
+- **`@openrupiv/policy`** — deny-by-default policy decision point. OPA/Rego
+  compiled to embedded WASM (ADR-0006): in-process, no sidecar, air-gap
+  friendly. RBAC policy (`authz.rego`) compiled to a committed,
+  byte-reproducible `authz.wasm`; CI rebuilds-and-diffs it. Fail-closed
+  wrapper: any evaluation error → deny. Runtime RBAC wiring next.
 
 ## Phase 1 — Core — 2026-07-06
 
@@ -60,5 +66,6 @@ The zero → described-app-running-locally path, end-to-end.
   - **medium** — open redirect via a control character in `returnTo`.
   - **medium** — the runtime container ran as root. Now runs as `node`.
   - **low** — missing `.dockerignore` risked baking host files into layers.
-  These remain human-only review paths per `CLAUDE.md`; human sign-off is
-  still recommended before any release.
+  These are human-only review paths per `CLAUDE.md`; the maintainer signed
+  off on the reviewed auth/enforcement files on 2026-07-06 after the review
+  and fixes.

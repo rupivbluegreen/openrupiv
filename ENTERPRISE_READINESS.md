@@ -13,11 +13,11 @@ _Last updated: 2026-07-06 (Phase 1 core landed; e2e-verified via `scripts/e2e-qu
 
 | Requirement | Status |
 |---|---|
-| OIDC SSO | ✅ runtime v0 — Authorization Code + PKCE via discovery, purpose-bound signed sessions, e2e-verified. Passed an adversarial security review (critical replay bypass found + fixed). Human maintainer sign-off still recommended |
+| OIDC SSO | ✅ runtime v0 — Authorization Code + PKCE via discovery, purpose-bound signed sessions, e2e-verified. Passed an adversarial security review (critical replay bypass found + fixed) and human maintainer sign-off (2026-07-06) |
 | SAML SSO | 📋 M5 |
 | SCIM provisioning | 📋 M5 |
 | RBAC | 📋 M4 |
-| ABAC via OPA | 📋 M4 |
+| ABAC via OPA | 🚧 `@openrupiv/policy` — OPA/Rego embedded as WASM (ADR-0006), deny-by-default PDP with RBAC policy, tested. Runtime wiring (replace ad-hoc guard checks) next |
 | Scoped API tokens | 📋 M4 |
 | Service identity (SPIFFE) | 📋 M5 |
 | Session policies | 📋 M5 |

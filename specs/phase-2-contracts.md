@@ -119,17 +119,36 @@ export function toJsonl(records: AuditRecord[]): string;           // one JSON o
   the request fails closed (5xx) for transactional events; for
   best-effort auth events it logs at error level with the event preserved.
 
-## 3. `@openrupiv/policy` — PDP (contract stubbed; full spec when audit lands)
+## 3. `@openrupiv/policy` — PDP (BUILT)
 
 Deny-by-default decision API the runtime calls before privileged actions.
-Embedding approach (sidecar vs WASM) is an ADR to be written before build.
-Placeholder so downstream packages can import the type:
+OPA/Rego evaluated as embedded WASM (ADR-0006). The Rego source
+(`policy/authz.rego`) is compiled to a committed `policy/authz.wasm`
+(byte-reproducible with the pinned `opa` version; CI rebuilds-and-diffs).
 
 ```ts
-export interface PolicyInput { subject: { id: string; roles: string[] }; action: string; resource: string; context?: Record<string, unknown>; }
-export interface PolicyDecision { allow: boolean; reason: string; policyId?: string; }
+export interface PolicySubject { id: string; roles: string[]; }
+export interface PolicyResource { type: string; id?: string; allowedRoles: string[]; }
+export interface PolicyInput { subject: PolicySubject; action: string; resource: PolicyResource; context?: Record<string, unknown>; }
+export interface PolicyDecision { allow: boolean; reason: string; policyId: string; }
 export interface PolicyEngine { decide(input: PolicyInput): Promise<PolicyDecision>; }
+export function createPolicyEngine(opts?: { wasmPath?: string }): Promise<PolicyEngine>;
 ```
+
+- v0.2 policy is RBAC: allow when the subject holds a role in
+  `resource.allowedRoles`; an empty `allowedRoles` permits any authenticated
+  subject (non-empty `subject.id`); everything else denies.
+- Deny-by-default is enforced in the TS wrapper: any evaluation error,
+  missing result, or non-`true` allow → deny (fail-closed).
+
+### RBAC wiring into the runtime (NEXT)
+
+Replace the ad-hoc role checks in `workflows.ts` guard/approval steps with a
+`PolicyEngine.decide` call: build the `PolicyInput` from the session subject
+and the transition's guard/approval roles (`allowedRoles`), deny → 403, and
+audit every decision. The Phase 1 e2e flow must pass unchanged. This edits a
+human-review-path file; the maintainer signed off on `workflows.ts`
+(2026-07-06), so the wiring may proceed with the usual test + e2e rigor.
 
 ## Package skeletons
 

@@ -1,0 +1,18 @@
+{
+  "name": "@openrupiv/policy",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:policy": "bash scripts/build-policy.sh"
+  },
+  "dependencies": {
+    "@open-policy-agent/opa-wasm": "^1.9.0"
+  }
+}

@@ -46,6 +46,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check-licenses
 
+  policy-wasm:
+    name: Policy WASM matches Rego
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OPA
+        run: |
+          curl -fsSL -o /usr/local/bin/opa https://openpolicyagent.org/downloads/v1.18.2/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+          opa version
+      - name: Rebuild and diff the committed policy bundle
+        run: bash packages/policy/scripts/check-policy-wasm.sh
+
   dco:
     name: DCO sign-off
     if: github.event_name == 'pull_request'
