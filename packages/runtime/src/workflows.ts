@@ -21,12 +21,13 @@
  *          constraint on workflow_approvals backs this under concurrency.
  *        - when COUNT(DISTINCT approver_sub) reaches approval.count the
  *          state flips IN THE SAME TRANSACTION as the final approval.
- * One deliberate, non-observable reordering: the approval-role decision (4)
- * is now resolved before guard predicates (3) are evaluated (both moved
- * ahead of the state-write transaction — see below) rather than after. No
- * shipped spec combines guard predicates with an approval rule on the same
- * transition, so this is not exercised by any test today; flagged here for
- * the human reviewer because a future spec could make it observable.
+ * Ordering is fully preserved even though roles (2, 4-roles) are now decided
+ * and audited ahead of the state-write transaction (see AUDIT below): guard
+ * predicates (3) are evaluated twice — once non-authoritatively against the
+ * pre-transaction peek, purely to keep them ahead of the approval-role
+ * decision in the response as documented above, and again authoritatively
+ * against the FOR UPDATE-locked row once the transaction opens, which is the
+ * race-safe check a concurrent transition must respect.
  *
  * Any thrown error rolls the whole transaction back — an approval is never
  * recorded unless every check before it passed, and a state change is never
@@ -168,6 +169,37 @@ function looseEquals(raw: unknown, expected: unknown, field: FieldDef): boolean 
   return typeof raw === "string" && raw === expected;
 }
 
+/**
+ * Evaluate every guard predicate against `row`, throwing on the first
+ * failure. Shared by the pre-transaction peek check (non-authoritative,
+ * response-ordering only) and the in-transaction authoritative check —
+ * identical logic, so the two can never drift apart.
+ */
+function checkGuardPredicates(
+  transition: TransitionDef,
+  model: EntityModel,
+  row: Record<string, unknown>,
+): void {
+  for (const predicate of transition.guard?.require ?? []) {
+    const field = model.fieldByName.get(predicate.field);
+    if (!field) {
+      // validateSpec makes this unreachable; fail loudly if it ever isn't.
+      throw new RuntimeError(
+        "ERR_INTERNAL",
+        `guard predicate references unknown field ${JSON.stringify(predicate.field)}`,
+      );
+    }
+    if (!evaluatePredicate(predicate, field, row)) {
+      throw new RuntimeError(
+        "ERR_GUARD_FAILED",
+        `guard predicate failed: ${predicate.field} ${predicate.op}` +
+          (predicate.value !== undefined ? ` ${JSON.stringify(predicate.value)}` : ""),
+        { statusCode: 409, details: { predicate } },
+      );
+    }
+  }
+}
+
 function toComparable(value: unknown, field: FieldDef): number | undefined {
   if (field.type === "number") {
     const n = typeof value === "number" ? value : Number(value);
@@ -251,11 +283,12 @@ export async function executeTransition(
     appendAllOrFail(audit, logger, independentEvents.splice(0, independentEvents.length));
 
   // Pre-transaction (unlocked) read — NOT the enforcement point; it exists
-  // only so a bad state still outranks a forbidden role in the response,
-  // matching the documented enforcement order, even though role decisions
-  // below are now resolved and durably audited before any write transaction
-  // opens. The row is re-read and locked FOR UPDATE inside the transaction
-  // below, which is the race-safe, authoritative check.
+  // only so state (1) and guard predicates (3) still outrank the role
+  // decisions (2, 4) in the response, matching the documented enforcement
+  // order, even though role decisions below are now resolved and durably
+  // audited before any write transaction opens. The row is re-read and
+  // locked FOR UPDATE inside the transaction below, which is the race-safe,
+  // authoritative check.
   const peek = await db.query(
     `SELECT * FROM ${quoteIdent(table)} WHERE id = $1`,
     [recordId],
@@ -299,6 +332,13 @@ export async function executeTransition(
       },
     );
   }
+
+  // 3. Guard predicates — checked here against the unlocked peek, purely to
+  // keep them ahead of the approval-role decision (4a) below in the
+  // response, matching the documented enforcement order. Not the
+  // authoritative check: re-checked inside the transaction against the
+  // FOR UPDATE-locked row below.
+  checkGuardPredicates(transition, model, peekRow);
 
   // 4a. Approval roles (only when this transition has an approval rule) —
   // resolved and audited up front for the same reason as guard roles above.
@@ -355,25 +395,10 @@ export async function executeTransition(
         );
       }
 
-      // 3. Guard predicates.
-      for (const predicate of transition.guard?.require ?? []) {
-        const field = model.fieldByName.get(predicate.field);
-        if (!field) {
-          // validateSpec makes this unreachable; fail loudly if it ever isn't.
-          throw new RuntimeError(
-            "ERR_INTERNAL",
-            `guard predicate references unknown field ${JSON.stringify(predicate.field)}`,
-          );
-        }
-        if (!evaluatePredicate(predicate, field, row)) {
-          throw new RuntimeError(
-            "ERR_GUARD_FAILED",
-            `guard predicate failed: ${predicate.field} ${predicate.op}` +
-              (predicate.value !== undefined ? ` ${JSON.stringify(predicate.value)}` : ""),
-            { statusCode: 409, details: { predicate } },
-          );
-        }
-      }
+      // 3. Guard predicates — re-checked here, race-safe under the row lock.
+      // The pre-transaction peek-based check above is not authoritative:
+      // this is the check a concurrent transition must respect.
+      checkGuardPredicates(transition, model, row);
 
       // No approval rule: flip state now, same transaction — with the audit
       // record appended in that SAME transaction (atomic with the side effect).

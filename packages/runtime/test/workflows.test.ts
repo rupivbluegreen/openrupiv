@@ -375,3 +375,67 @@ describe("guard predicates (project tracker)", () => {
     expect(ok.json()).toEqual({ status: "transitioned", state: "done" });
   });
 });
+
+describe(
+  "guard predicates outrank the approval-role decision " +
+    "(enforcement order, finding post-commit-flush-ordering)",
+  () => {
+    // project-tracker's kick-off transition, with an approval rule bolted on
+    // whose role ("director") is disjoint from the guard role ("lead") — no
+    // shipped fixture combines guard predicates with an approval rule on the
+    // same transition, so this scenario needs a purpose-built spec. Proves
+    // that a caller failing BOTH the guard predicate and the approval-role
+    // check still gets 409 ERR_GUARD_FAILED, not 403 ERR_FORBIDDEN_ROLE —
+    // guard predicates (3) must be checked before the approval-role decision
+    // (4a) is ever reached, even though both role decisions are now resolved
+    // ahead of the state-write transaction (see workflows.ts module doc).
+    const baseWorkflow = fixtures.projectTrackerSpec.workflows![0]!;
+    const spec = {
+      ...fixtures.projectTrackerSpec,
+      app: { ...fixtures.projectTrackerSpec.app, roles: ["member", "lead", "director"] },
+      workflows: [
+        {
+          ...baseWorkflow,
+          transitions: baseWorkflow.transitions.map((t) =>
+            t.name === "kick-off" ? { ...t, approval: { count: 1, roles: ["director"] } } : t,
+          ),
+        },
+      ],
+    };
+    const lead = { cookie: sessionCookieFor({ sub: "u-lead", roles: ["lead"] }) };
+    let db: FakeDb;
+    let server: TestServer;
+
+    beforeEach(async () => {
+      db = new FakeDb();
+      server = await buildTestServer(spec, db);
+    });
+
+    function seedProject(fields: Record<string, unknown>): string {
+      const row = db.seedRow("project", { name: `p-${randomUUID()}`, ...fields });
+      return String(row["id"]);
+    }
+
+    it("a failing guard predicate (budget<=0) surfaces as 409 ERR_GUARD_FAILED even though the caller also lacks the approval role", async () => {
+      const id = seedProject({ phase: "planned", budget: 0 });
+      const res = await server.app.inject({
+        method: "POST",
+        url: `/api/project/${id}/transitions/kick-off`,
+        headers: lead,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ error: "ERR_GUARD_FAILED" });
+    });
+
+    it("once the guard predicate passes, a missing approval role surfaces as 403 ERR_FORBIDDEN_ROLE", async () => {
+      const id = seedProject({ phase: "planned", budget: 50_000 });
+      const res = await server.app.inject({
+        method: "POST",
+        url: `/api/project/${id}/transitions/kick-off`,
+        headers: lead,
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toMatchObject({ error: "ERR_FORBIDDEN_ROLE" });
+    });
+  },
+);
