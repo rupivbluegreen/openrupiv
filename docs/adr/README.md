@@ -25,3 +25,4 @@ write a new ADR that supersedes it and link both ways.
 - [0004 — Generated apps are declarative artifacts served by the runtime engine](0004-generated-apps-are-data-served-by-runtime.md)
 - [0005 — Dev-mode role grant and second dev user](0005-dev-mode-role-grant.md)
 - [0006 — Policy engine: OPA/Rego as embedded WASM, bundles pre-compiled and committed](0006-opa-wasm-embedded-pdp.md)
+- [0007 — Agent tool sandbox: per-execution bubblewrap jails in a dedicated sidecar (no docker.sock)](0007-agent-sandbox-bubblewrap-sidecar.md) — proposed, human-only review path

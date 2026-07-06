@@ -12,8 +12,12 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
+import type { AuditStore } from "@openrupiv/audit";
+import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerAdminAuditRoutes } from "./admin";
+import { createDbAuditStore } from "./audit";
 import { defaultOidcProvider, registerAuth, type OidcProvider } from "./auth";
 import { assertRuntimeConfig, configFromEnv, type RuntimeConfig } from "./config";
 import { createPgDb, type Db } from "./db";
@@ -69,6 +73,10 @@ export interface ServerDeps {
   db?: Db;
   oidcProvider?: OidcProvider;
   logger?: Logger;
+  /** Hash-chained audit store; defaults to one backed by `db` (audit.ts). */
+  auditStore?: AuditStore;
+  /** Deny-by-default PDP; defaults to the committed OPA WASM bundle (ADR-0006). */
+  policyEngine?: PolicyEngine;
 }
 
 /** Build the Fastify server (exported for tests). Does not listen. */
@@ -84,6 +92,8 @@ export async function createServer(
   const logger = deps.logger ?? createLogger();
   const db = deps.db ?? createPgDb(config.databaseUrl);
   const ownsDb = deps.db === undefined;
+  const auditStore = deps.auditStore ?? createDbAuditStore(db, logger);
+  const policyEngine = deps.policyEngine ?? (await createPolicyEngine());
 
   const app = Fastify({ logger: false });
 
@@ -140,9 +150,16 @@ export async function createServer(
     logger,
     deps.oidcProvider ?? defaultOidcProvider(config, logger),
     spec.app.roles ?? [],
+    auditStore,
   );
-  registerEntityRoutes(app, spec, db, logger);
-  registerWorkflowRoutes(app, spec, db, logger);
+  registerEntityRoutes(app, spec, db, logger, auditStore);
+  registerWorkflowRoutes(app, spec, db, logger, policyEngine, auditStore);
+  registerAdminAuditRoutes(app, {
+    audit: auditStore,
+    policy: policyEngine,
+    logger,
+    appRoles: spec.app.roles ?? [],
+  });
   registerPages(app, spec, db, logger);
 
   // Structured request log. Never the query string (OAuth codes/states),

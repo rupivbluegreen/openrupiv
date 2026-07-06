@@ -27,6 +27,13 @@ export {
   type VerifyResult,
 } from "./session";
 export { defaultOidcProvider, type OidcProvider } from "./auth";
+export {
+  createDbAuditStore,
+  appendOrFail,
+  appendAllOrFail,
+  auditBestEffort,
+} from "./audit";
+export { AUDIT_READ_ROLES, registerAdminAuditRoutes } from "./admin";
 export { escapeHtml } from "./pages";
 export {
   executeTransition,

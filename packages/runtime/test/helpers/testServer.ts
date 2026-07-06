@@ -4,6 +4,8 @@
  * exercises the REAL signing/verification path.
  */
 
+import type { AuditStore } from "@openrupiv/audit";
+import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
 import type { AppSpec } from "@openrupiv/spec";
 import type { FastifyInstance } from "fastify";
 import type { OidcProvider } from "../../src/auth";
@@ -78,6 +80,16 @@ export const unreachableOidcProvider: OidcProvider = {
   },
 };
 
+/**
+ * The REAL policy engine (committed OPA WASM bundle), loaded once per test
+ * file — RBAC tests exercise the actual PDP, not a stub.
+ */
+let enginePromise: Promise<PolicyEngine> | undefined;
+export function sharedPolicyEngine(): Promise<PolicyEngine> {
+  enginePromise ??= createPolicyEngine();
+  return enginePromise;
+}
+
 export interface TestServer {
   app: FastifyInstance;
   logger: CapturingLogger;
@@ -90,6 +102,10 @@ export async function buildTestServer(
   options: {
     config?: RuntimeConfig;
     oidcProvider?: OidcProvider;
+    /** Injected audit store; default: the real Db-backed store over `db`. */
+    auditStore?: AuditStore;
+    /** Injected PDP; default: the real WASM engine (shared per test file). */
+    policyEngine?: PolicyEngine;
   } = {},
 ): Promise<TestServer> {
   const logger = new CapturingLogger();
@@ -98,6 +114,8 @@ export async function buildTestServer(
     db,
     logger,
     oidcProvider: options.oidcProvider ?? unreachableOidcProvider,
+    ...(options.auditStore ? { auditStore: options.auditStore } : {}),
+    policyEngine: options.policyEngine ?? (await sharedPolicyEngine()),
   });
   return { app, logger, config };
 }

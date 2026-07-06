@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { appendRecord, toJsonl, toOtlpLogRecords, toSyslog } from "../src/index";
+import {
+  appendRecord,
+  otlpEnvelope,
+  otlpLogRecord,
+  toJsonl,
+  toOtlpLogRecords,
+  toSyslog,
+} from "../src/index";
 import type { AuditRecord } from "../src/index";
 
 function chain(): AuditRecord[] {
@@ -42,5 +49,17 @@ describe("SIEM exporters", () => {
     expect(lines[0]).toMatch(/^<13>1 2026-07-06T00:00:00\.000Z openrupiv audit 1 auth\.login \[openrupiv@0 /);
     expect(lines[1]).toContain('decision="allow"');
     expect(lines[1]).toContain('subject="vendor_application:x"');
+  });
+
+  it("otlpEnvelope + otlpLogRecord, comma-joined, reproduce toOtlpLogRecords exactly (streaming equivalence)", () => {
+    const records = chain();
+    const { open, close } = otlpEnvelope();
+    const streamed = open + records.map((r) => JSON.stringify(otlpLogRecord(r))).join(",") + close;
+    expect(JSON.parse(streamed)).toEqual(toOtlpLogRecords(records));
+  });
+
+  it("otlpEnvelope alone (no records) reproduces an empty-logRecords toOtlpLogRecords", () => {
+    const { open, close } = otlpEnvelope();
+    expect(JSON.parse(open + close)).toEqual(toOtlpLogRecords([]));
   });
 });

@@ -81,6 +81,9 @@ importers:
       '@openrupiv/audit':
         specifier: workspace:*
         version: link:../audit
+      '@openrupiv/policy':
+        specifier: workspace:*
+        version: link:../policy
       '@openrupiv/spec':
         specifier: workspace:*
         version: link:../spec

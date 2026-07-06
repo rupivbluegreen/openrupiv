@@ -14,6 +14,10 @@ import type { Db, Queryable, QueryResultLike } from "../../src/db";
 
 type Row = Record<string, unknown>;
 
+/** Column list used by the @openrupiv/audit store SQL (exact order). */
+const AUDIT_COLUMNS =
+  "seq, timestamp, event, actor, actor_type, subject, decision, attributes, prev_hash, hash";
+
 export interface FakeDbOptions {
   /** Column defaults per table, applied on INSERT when absent. */
   defaults?: Record<string, Record<string, unknown>>;
@@ -25,15 +29,32 @@ export class FakeDb implements Db {
   /** Every statement executed, in order (assert ordering/transactionality). */
   readonly statements: { text: string; params: unknown[] }[] = [];
   private failPattern: RegExp | undefined;
+  private failSkip = 0;
 
   constructor(private readonly options: FakeDbOptions = {}) {
     this.tables.set("workflow_approvals", new Map());
     this.tables.set("_migrations", new Map());
+    this.tables.set("audit_log", new Map());
   }
 
-  /** Make the next statement matching `pattern` throw (atomicity tests). */
-  failNextMatching(pattern: RegExp): void {
+  /** audit_log rows in seq order (chain order), for assertions. */
+  auditRows(): Row[] {
+    return this.rows("audit_log").sort(
+      (a, b) => Number(a["seq"]) - Number(b["seq"]),
+    );
+  }
+
+  /**
+   * Make a statement matching `pattern` throw (atomicity tests). By default
+   * throws on the very next match; pass `occurrence` > 1 to let earlier
+   * matches succeed and fail only the Nth one (e.g. several identical
+   * `INSERT INTO audit_log` statements happen per request now that PDP
+   * decisions are audited up front — a test targeting the LAST one needs to
+   * let the earlier ones through).
+   */
+  failNextMatching(pattern: RegExp, occurrence = 1): void {
     this.failPattern = pattern;
+    this.failSkip = Math.max(occurrence, 1) - 1;
   }
 
   table(name: string): Map<string, Row> {
@@ -69,8 +90,12 @@ export class FakeDb implements Db {
     this.statements.push({ text: sql, params });
 
     if (this.failPattern?.test(sql)) {
-      this.failPattern = undefined;
-      throw new Error(`FakeDb: injected failure for ${sql}`);
+      if (this.failSkip > 0) {
+        this.failSkip--;
+      } else {
+        this.failPattern = undefined;
+        throw new Error(`FakeDb: injected failure for ${sql}`);
+      }
     }
 
     // DDL — recorded, not interpreted.
@@ -93,6 +118,60 @@ export class FakeDb implements Db {
         applied_at: new Date().toISOString(),
       });
       return { rows: [], rowCount: 1 };
+    }
+
+    // Hash-chained audit log (@openrupiv/audit store SQL, exact shapes).
+    // The advisory xact lock (finding "concurrent-append-stale-tail") is a
+    // no-op here: FakeDb is single-threaded, so there is never a second
+    // waiter to serialize against. Real concurrency is exercised against a
+    // live Postgres in @openrupiv/audit's store.live.test.ts.
+    if (sql === "SELECT pg_advisory_xact_lock($1)") {
+      return { rows: [{ pg_advisory_xact_lock: null }], rowCount: 1 };
+    }
+    if (
+      sql ===
+      `SELECT ${AUDIT_COLUMNS} FROM audit_log ORDER BY seq DESC LIMIT 1 FOR UPDATE`
+    ) {
+      const rows = this.auditRows();
+      const tail = rows[rows.length - 1];
+      return { rows: tail ? [{ ...tail }] : [], rowCount: tail ? 1 : 0 };
+    }
+    if (
+      sql ===
+      `INSERT INTO audit_log (${AUDIT_COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
+    ) {
+      const [seq, timestamp, event, actor, actorType, subject, decision, attributes, prevHash, hash] =
+        params;
+      const key = String(seq);
+      if (this.table("audit_log").has(key)) {
+        throw new Error(`FakeDb: duplicate audit_log seq ${key}`);
+      }
+      this.table("audit_log").set(key, {
+        seq,
+        timestamp,
+        event,
+        actor,
+        actor_type: actorType,
+        subject: subject ?? null,
+        decision: decision ?? null,
+        // pg parses jsonb on read; the store binds a JSON string.
+        attributes: JSON.parse(String(attributes)),
+        prev_hash: prevHash,
+        hash,
+      });
+      return { rows: [], rowCount: 1 };
+    }
+    if (
+      sql ===
+      `SELECT ${AUDIT_COLUMNS} FROM audit_log WHERE seq >= $1 ORDER BY seq ASC LIMIT $2`
+    ) {
+      const fromSeq = Number(params[0]);
+      const limit = Number(params[1]);
+      const rows = this.auditRows()
+        .filter((r) => Number(r["seq"]) >= fromSeq)
+        .slice(0, limit)
+        .map((r) => ({ ...r }));
+      return { rows, rowCount: rows.length };
     }
 
     // n-eyes approval insert with conflict-skip on the UNIQUE constraint.

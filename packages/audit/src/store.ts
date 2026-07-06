@@ -1,9 +1,28 @@
 /**
- * Postgres-backed append-only audit store. Concurrency safety: appends
- * serialize on the tail of the chain via SELECT ... FOR UPDATE inside a
- * transaction, so two concurrent appends can never fork the chain (both
- * would compute the same prevHash otherwise). There is no update or delete
- * method — the store cannot mutate history, by construction.
+ * Postgres-backed append-only audit store. Concurrency safety: every append
+ * first takes a FIXED advisory transaction lock (`pg_advisory_xact_lock`),
+ * then reads the chain tail via `SELECT ... FOR UPDATE`. There is no update
+ * or delete method — the store cannot mutate history, by construction.
+ *
+ * Why the advisory lock, and not just the tail row lock: under READ
+ * COMMITTED, `SELECT ... ORDER BY seq DESC LIMIT 1 FOR UPDATE` identifies and
+ * locks ONE SPECIFIC ROW (the current tail) before returning it. A second,
+ * concurrent append blocks trying to lock that SAME row. The first append
+ * does not modify that row — it INSERTs a brand-new one — so when the first
+ * commits and releases the row lock, the second transaction's blocked
+ * statement simply resumes with the SAME (now-stale) row it was already
+ * holding onto; Postgres has no reason to re-run the ORDER BY/LIMIT scan
+ * (EvalPlanQual re-checks only apply to rows that were themselves updated
+ * out from under the waiter, which never happens here). The result: both
+ * transactions compute the same "next seq"/prevHash and the second's INSERT
+ * collides on the seq PRIMARY KEY / hash UNIQUE constraint — confirmed by a
+ * live-Postgres repro (see test/store.live.test.ts).
+ *
+ * `pg_advisory_xact_lock` sidesteps this: a waiter blocks on lock
+ * acquisition itself (not on a specific row), and once granted — after the
+ * holder's transaction ends — its OWN subsequent `SELECT` is a fresh
+ * statement that (under READ COMMITTED) sees everything the holder
+ * committed, including the new tail row.
  */
 
 import { appendRecord, scrubAttributes, verifyChain } from "./chain";
@@ -40,6 +59,18 @@ const COLUMNS =
 
 const SELECT_TAIL = `SELECT ${COLUMNS} FROM audit_log ORDER BY seq DESC LIMIT 1 FOR UPDATE`;
 const INSERT_RECORD = `INSERT INTO audit_log (${COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`;
+
+/**
+ * Fixed advisory-lock key serializing every append to this chain. The value
+ * is arbitrary but must stay stable — changing it would let a process still
+ * running the old value append concurrently with one running the new value,
+ * silently reopening the race this lock exists to close. Comfortably inside
+ * the safe-integer range so it round-trips through JS/pg without precision
+ * loss; picked with no significance beyond "unlikely to collide with
+ * unrelated advisory-lock use in the same database".
+ */
+export const AUDIT_CHAIN_LOCK_KEY = 847_293_017_734;
+const LOCK_CHAIN_TAIL = "SELECT pg_advisory_xact_lock($1)";
 
 export function rowToRecord(row: unknown): AuditRecord {
   const r = row as Record<string, unknown>;
@@ -81,8 +112,15 @@ function insertParams(record: AuditRecord): unknown[] {
 /**
  * Append one record using an EXISTING transaction/connection (`tx`). Does not
  * BEGIN/COMMIT — the caller's transaction owns that, so the audit record and
- * the caller's side effect commit or roll back atomically together. Locks the
- * chain tail (FOR UPDATE) so concurrent transactions serialize.
+ * the caller's side effect commit or roll back atomically together.
+ *
+ * Concurrency: first acquires the fixed advisory transaction lock
+ * (`AUDIT_CHAIN_LOCK_KEY`), released automatically at COMMIT/ROLLBACK, THEN
+ * reads and locks the chain tail. Both `append()` below and every
+ * `appendInTransaction` caller (e.g. the runtime's in-transaction workflow
+ * events) go through this one function, so the lock covers the whole append
+ * path regardless of entry point. See the module doc comment for why the
+ * tail row lock alone is not sufficient.
  */
 export async function appendInTransaction(
   tx: Queryable,
@@ -92,6 +130,7 @@ export async function appendInTransaction(
   const clock = opts.clock ?? (() => new Date().toISOString());
   const { attributes, scrubbed } = scrubAttributes(input.attributes);
   if (scrubbed.length > 0) opts.onScrub?.(input.event, scrubbed);
+  await tx.query(LOCK_CHAIN_TAIL, [AUDIT_CHAIN_LOCK_KEY]);
   const tail = await tx.query(SELECT_TAIL);
   const prev = tail.rows.length > 0 ? rowToRecord(tail.rows[0]) : null;
   const record = appendRecord(prev, { ...input, attributes }, clock());

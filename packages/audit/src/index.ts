@@ -20,9 +20,16 @@ export {
   scrubAttributes,
   verifyChain,
 } from "./chain";
-export { toJsonl, toOtlpLogRecords, toSyslog } from "./export";
+export {
+  otlpEnvelope,
+  otlpLogRecord,
+  toJsonl,
+  toOtlpLogRecords,
+  toSyslog,
+} from "./export";
 export {
   appendInTransaction,
+  AUDIT_CHAIN_LOCK_KEY,
   createAuditStore,
   rowToRecord,
   type AppendOptions,
