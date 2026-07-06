@@ -1,6 +1,6 @@
 # openRupiv — Open-Source Enterprise App Development Platform — Build Plan
 
-> **Name:** `openRupiv` *(decided 2026-07-06; trademark search + domain registration still pending)*
+> **Name:** `openRupiv` *(decided 2026-07-06; domain rupiv.ai registered 2026-07-06; trademark search still pending)*
 > **License:** Apache-2.0 with DCO sign-off
 > **Goal:** Maximize adoption, not revenue. Every enterprise feature ships free. No open-core, no paywall, no "contact sales."
 > **Build engine:** One human + Claude Code as the engineering team.
@@ -154,10 +154,10 @@ No paywall ≠ no money needed. Three non-paywall funding paths, all consistent 
 
 ## 9. Open decisions
 
-1. **Name** — ✅ **RESOLVED 2026-07-06: `openRupiv`.** Still to do: trademark search, domain registration.
+1. **Name** — ✅ **RESOLVED 2026-07-06: `openRupiv`.** Domain `rupiv.ai` ✅ registered 2026-07-06. Still to do: trademark search.
 2. **Scope seam** — umbrella product absorbing the agent-platform plan (recommended) vs separate repos.
 3. **Ownership** — ✅ **RESOLVED 2026-07-06: personally sponsored project.** External sponsors possible later via the non-paywall funding paths in §7; sponsorship never buys decision power.
-4. **Telemetry** — recommended: anonymous instance ping, opt-out, fully documented payload, self-hostable endpoint. Alternative: opt-in only (cleaner story, ~10x less data).
+4. **Telemetry** — ✅ **RESOLVED 2026-07-06: opt-out.** Anonymous instance ping, fully documented payload, self-hostable endpoint.
 5. **Visual builder depth** — v1 spec-editor (recommended) vs drag-and-drop canvas.
 6. **First showcase vertical** — recommended: the compliance-tools template pack (Section 6, Phase 4); alternative: a generic CRUD/approval showcase.
 
