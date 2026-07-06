@@ -117,14 +117,14 @@ export const vendorOnboardingSpec: AppSpec = {
 /**
  * Phase 2 demo: `vendorOnboardingSpec` extended with one v0.2 agent task
  * that proposes the `approve` transition (specs/phase-2-contracts.md §4).
- * Kept as a SEPARATE fixture — not a mutation of `vendorOnboardingSpec`
- * itself — so Phase 1 packages that assert against the original fixture
- * (compiler golden snapshots, the generator's few-shot prompt example, the
- * CLI's fixture-replay tests, the golden corpus's exact-match
+ * Deep-cloned from `vendorOnboardingSpec` to ensure `entities` and `workflows`
+ * do not share array identity, so Phase 1 packages that assert against the
+ * original fixture (compiler golden snapshots, the generator's few-shot prompt
+ * example, the CLI's fixture-replay tests, the golden corpus's exact-match
  * "vendor-onboarding" entry) are completely unaffected by the v0.2 rollout.
  */
 export const vendorOnboardingWithAgentSpec: AppSpec = {
-  ...vendorOnboardingSpec,
+  ...structuredClone(vendorOnboardingSpec),
   specVersion: "0.2",
   agents: [
     {

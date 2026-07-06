@@ -43,6 +43,9 @@ describe("validateSpec — vendorOnboardingWithAgentSpec fixture", () => {
   it("carries the same entities/workflows as vendorOnboardingSpec, unchanged", () => {
     expect(fixtures.vendorOnboardingWithAgentSpec.entities).toEqual(fixtures.vendorOnboardingSpec.entities);
     expect(fixtures.vendorOnboardingWithAgentSpec.workflows).toEqual(fixtures.vendorOnboardingSpec.workflows);
+    // Ensure no shared array identity — the fixture is deep-cloned to prevent cross-mutation
+    expect(fixtures.vendorOnboardingWithAgentSpec.entities).not.toBe(fixtures.vendorOnboardingSpec.entities);
+    expect(fixtures.vendorOnboardingWithAgentSpec.workflows).not.toBe(fixtures.vendorOnboardingSpec.workflows);
   });
 });
 
