@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentTaskNotFoundError, DEFAULT_SANDBOX_LIMITS, createAgentRuntime } from "../src/index";
+import { AgentTaskNotFoundError, AgentToolUnregisteredError, DEFAULT_SANDBOX_LIMITS, createAgentRuntime } from "../src/index";
 import type { AgentTaskDef, RegisteredTool } from "../src/types";
 import { FakeAuditStore } from "./helpers/fakeAuditStore";
 import { FakeDb } from "./helpers/fakeDb";
@@ -48,6 +48,20 @@ describe("contextFor", () => {
     expect(() => runtime.contextFor("anything")).toThrow(AgentTaskNotFoundError);
   });
 
+  it("throws AgentToolUnregisteredError at construction if a task's tools allowlist names an unregistered tool", () => {
+    const task: AgentTaskDef = { name: "onboard-vendor", tools: ["echo", "ghost-tool"] };
+    const spec = buildSpec([task]);
+    expect(() =>
+      createAgentRuntime(spec, {
+        db: new FakeDb(),
+        policy: new FakePolicy(),
+        audit: new FakeAuditStore(),
+        sandbox: new FakeSandbox(),
+        tools: [ECHO_TOOL],
+      }),
+    ).toThrow(AgentToolUnregisteredError);
+  });
+
   it("constructs the reserved agent identity (agent:<task>@<slug>) with empty roles", () => {
     const { runtime, spec } = setup();
     const ctx = runtime.contextFor("onboard-vendor");
@@ -85,20 +99,21 @@ describe("callTool enforcement order", () => {
     expect(audit.records.length).toBe(before);
   });
 
-  it("step 2: denies an allowlisted but unregistered tool -- before policy/audit", async () => {
-    const { runtime, policy, audit } = setup({ task: { tools: ["ghost"] } });
-    const ctx = runtime.contextFor("onboard-vendor");
-    const before = audit.records.length;
-
-    const result = await ctx.callTool({ tool: "ghost", input: {} });
-
-    expect(result).toEqual({
-      ok: false,
-      code: "ERR_TOOL_UNKNOWN",
-      message: expect.stringContaining("ghost"),
-    });
-    expect(policy.calls).toHaveLength(0);
-    expect(audit.records.length).toBe(before);
+  it("step 2: allowlisted but unregistered tools are caught at construction time (fail-fast)", () => {
+    // This scenario is now impossible at runtime because the fail-fast check
+    // in createAgentRuntime catches it at construction time. This test verifies
+    // that the fail-fast check works.
+    const task: AgentTaskDef = { name: "onboard-vendor", tools: ["ghost"] };
+    const spec = buildSpec([task]);
+    expect(() =>
+      createAgentRuntime(spec, {
+        db: new FakeDb(),
+        policy: new FakePolicy(),
+        audit: new FakeAuditStore(),
+        sandbox: new FakeSandbox(),
+        tools: [ECHO_TOOL],
+      }),
+    ).toThrow(AgentToolUnregisteredError);
   });
 
   it("step 2b: denies input that fails the tool's JSON Schema -- before policy/audit", async () => {
