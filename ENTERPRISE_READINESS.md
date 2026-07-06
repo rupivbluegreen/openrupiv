@@ -94,7 +94,7 @@ auth/authz/audit-integrity paths before these count as shipped)._
 | GOVERNANCE.md + maintainer ladder | ✅ v0 |
 | Code of conduct | ✅ |
 | RFC process | ✅ defined in GOVERNANCE.md |
-| Trademark + domain | 🚧 name decided (openRupiv, 2026-07-06); trademark search + domain registration pending |
+| Trademark + domain | 🚧 name decided (openRupiv, 2026-07-06); domain `rupiv.ai` registered 2026-07-06; trademark search pending |
 | GitHub org | ✅ personal account — github.com/rupivbluegreen/openrupiv (public since 2026-07-06) |
-| Telemetry privacy notice | 📋 blocked on Open Decision #4 |
+| Telemetry privacy notice | 📋 M2 — design resolved 2026-07-06 (opt-out, anonymous instance ping, self-hostable endpoint, PLAN.md Open Decision #4); notice/implementation itself not yet written |
 | Export-control note | 📋 M1 |
