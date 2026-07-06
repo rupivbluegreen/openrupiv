@@ -34,6 +34,18 @@ describe("validateSpec — canonical fixtures", () => {
   }
 });
 
+describe("validateSpec — vendorOnboardingWithAgentSpec fixture", () => {
+  it("is a valid v0.2 spec with one agent task proposing the approve transition", () => {
+    const result = validateSpec(JSON.parse(JSON.stringify(fixtures.vendorOnboardingWithAgentSpec)));
+    expect(result.ok, JSON.stringify(!result.ok && result.errors)).toBe(true);
+  });
+
+  it("carries the same entities/workflows as vendorOnboardingSpec, unchanged", () => {
+    expect(fixtures.vendorOnboardingWithAgentSpec.entities).toEqual(fixtures.vendorOnboardingSpec.entities);
+    expect(fixtures.vendorOnboardingWithAgentSpec.workflows).toEqual(fixtures.vendorOnboardingSpec.workflows);
+  });
+});
+
 describe("validateSpec — version and structure", () => {
   it("rejects non-objects", () => {
     for (const bad of [null, 42, "spec", [1]]) {

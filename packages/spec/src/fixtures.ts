@@ -114,6 +114,29 @@ export const vendorOnboardingSpec: AppSpec = {
   ],
 };
 
+/**
+ * Phase 2 demo: `vendorOnboardingSpec` extended with one v0.2 agent task
+ * that proposes the `approve` transition (specs/phase-2-contracts.md §4).
+ * Kept as a SEPARATE fixture — not a mutation of `vendorOnboardingSpec`
+ * itself — so Phase 1 packages that assert against the original fixture
+ * (compiler golden snapshots, the generator's few-shot prompt example, the
+ * CLI's fixture-replay tests, the golden corpus's exact-match
+ * "vendor-onboarding" entry) are completely unaffected by the v0.2 rollout.
+ */
+export const vendorOnboardingWithAgentSpec: AppSpec = {
+  ...vendorOnboardingSpec,
+  specVersion: "0.2",
+  agents: [
+    {
+      name: "vendor-risk-review",
+      description:
+        "Reads a submitted vendor application and proposes approval when risk looks acceptable.",
+      tools: ["read-vendor-application"],
+      proposes: [{ workflow: "vendor-approval", transition: "approve" }],
+    },
+  ],
+};
+
 /** Smallest possible valid spec. */
 export const minimalSpec: AppSpec = {
   specVersion: "0.1",
