@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createAgentRuntime } from "@openrupiv/agents";
 import type { AuditRecordInput } from "@openrupiv/audit";
 import { fixtures } from "@openrupiv/spec";
+import type { AgentTaskProcedureRegistry } from "../src/agent-tasks";
 import { DEMO_REGISTERED_TOOLS, DEMO_TASK_PROCEDURES, VENDOR_RISK_REVIEW_TASK } from "../src/agent-tasks";
 import { FakeDb } from "./helpers/fakeDb";
+import { FakeAuditStore } from "./helpers/fakeAgentAuditStore";
 import { FakeToolSandbox } from "./helpers/fakeToolSandbox";
 import { buildTestServer, sessionCookieFor, type TestServer } from "./helpers/testServer";
 
@@ -82,6 +84,52 @@ describe("admin agent routes", () => {
       payload: {},
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("501s ERR_AGENT_PROCEDURE_UNREGISTERED for a task declared in the spec with no registered procedure on this deployment, and still finishes the audit trail", async () => {
+    const unregisteredDb = new FakeDb();
+    const unregisteredSandbox = new FakeToolSandbox();
+    const agentAudit = new FakeAuditStore();
+    const agentRuntime = createAgentRuntime(spec, {
+      db: unregisteredDb as unknown as Parameters<typeof createAgentRuntime>[1]["db"],
+      policy: { decide: async () => ({ allow: true, reason: "test", policyId: "test" }) },
+      audit: agentAudit,
+      sandbox: unregisteredSandbox,
+      tools: DEMO_REGISTERED_TOOLS,
+    });
+    // Empty procedures registry: `vendor-risk-review` IS declared in the
+    // spec (so runtime.contextFor succeeds and emits agent.task_started),
+    // but this deployment has no procedure registered for it -- the 501
+    // (ERR_AGENT_PROCEDURE_UNREGISTERED) path, distinct from the 404 (task
+    // not declared in the spec at all) covered above.
+    const emptyProcedures: AgentTaskProcedureRegistry = {};
+    const unregisteredServer = await buildTestServer(spec, unregisteredDb, {
+      agents: { runtime: agentRuntime, procedures: emptyProcedures },
+    });
+    const row = unregisteredDb.seedRow("vendor_application", {
+      vendor_id: randomUUID(),
+      justification: "we need this vendor",
+      annual_spend: 10_000,
+      status: "in_review",
+    });
+    const recordId = String(row["id"]);
+
+    const res = await unregisteredServer.app.inject({
+      method: "POST",
+      url: `/admin/agents/${VENDOR_RISK_REVIEW_TASK}/run`,
+      headers: admin,
+      payload: { recordId },
+    });
+    expect(res.statusCode).toBe(501);
+
+    // Audit-trail completeness: contextFor() above already emitted
+    // agent.task_started before the procedure lookup failed, so this 501
+    // path must still call ctx.finish() -- otherwise that started record
+    // would never get a matching finished record.
+    const started = agentAudit.records.filter((r) => r.event === "agent.task_started");
+    const finished = agentAudit.records.filter((r) => r.event === "agent.task_finished");
+    expect(started).toHaveLength(1);
+    expect(finished).toHaveLength(1);
   });
 
   it("an agent proposal does not count toward the 4-eyes distinct-approver requirement", async () => {

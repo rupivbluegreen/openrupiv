@@ -26,15 +26,33 @@ export interface AdminAgentsDeps {
   policy: PolicyEngine;
   audit: AuditStore;
   logger: Logger;
+  /**
+   * Roles the ACTIVE APP SPEC declares (`spec.app.roles`) for its own domain
+   * purposes. Excluded from the subject's effective role set for the
+   * `agent.trigger` decision below — see admin.ts's "audit-role-namespace-collision" finding.
+   */
+  appRoles: readonly string[];
 }
 
-async function authorize(request: FastifyRequest, deps: AdminAgentsDeps, taskName: string): Promise<void> {
+async function authorize(
+  request: FastifyRequest,
+  deps: AdminAgentsDeps,
+  appRoleSet: ReadonlySet<string>,
+  taskName: string,
+): Promise<void> {
   const session = request.session;
   if (!session) {
     throw new RuntimeError("ERR_UNAUTHENTICATED", "authentication required", { statusCode: 401 });
   }
+  // Namespace-collision fix (see admin.ts's "audit-role-namespace-collision"
+  // finding): strip any role also declared by the app spec from the
+  // subject's EFFECTIVE role set before asking the PDP — an app can never
+  // make its own declared role satisfy this platform check this way, even
+  // on a literal string match like "admin". AGENT_TRIGGER_ROLES itself is
+  // never touched.
+  const platformRoles = session.roles.filter((role) => !appRoleSet.has(role));
   const decision = await deps.policy.decide({
-    subject: { id: session.sub, roles: session.roles },
+    subject: { id: session.sub, roles: platformRoles },
     action: "agent.trigger",
     resource: { type: "agent.task", id: taskName, allowedRoles: [...AGENT_TRIGGER_ROLES] },
   });
@@ -56,11 +74,14 @@ async function authorize(request: FastifyRequest, deps: AdminAgentsDeps, taskNam
 }
 
 export function registerAdminAgentRoutes(app: FastifyInstance, deps: AdminAgentsDeps): void {
+  const { appRoles } = deps;
+  const appRoleSet = new Set(appRoles);
+
   app.post<{ Params: { task: string }; Body: Record<string, unknown> }>(
     "/admin/agents/:task/run",
     async (request, reply) => {
       const taskName = request.params.task;
-      await authorize(request, deps, taskName);
+      await authorize(request, deps, appRoleSet, taskName);
 
       // Check the task is declared in the spec FIRST (404 if not) — only a
       // task that exists in the spec but lacks a registered procedure on
@@ -78,6 +99,13 @@ export function registerAdminAgentRoutes(app: FastifyInstance, deps: AdminAgents
 
       const procedure = deps.procedures[taskName];
       if (!procedure) {
+        // contextFor() above already emitted agent.task_started; finish()
+        // here so that record always has a matching agent.task_finished,
+        // even on this "never actually ran" 501 path.
+        await ctx.finish({
+          reason: "error",
+          detail: { message: `no registered procedure for task ${JSON.stringify(taskName)}` },
+        });
         throw new RuntimeError(
           "ERR_AGENT_PROCEDURE_UNREGISTERED",
           `agent task ${JSON.stringify(taskName)} has no registered procedure on this deployment`,
@@ -100,7 +128,7 @@ export function registerAdminAgentRoutes(app: FastifyInstance, deps: AdminAgents
   app.get<{ Querystring: { workflow?: string; recordId?: string } }>(
     "/admin/agent-proposals",
     async (request, reply) => {
-      await authorize(request, deps, "*");
+      await authorize(request, deps, appRoleSet, "*");
       const proposals = await deps.runtime.listProposals({
         ...(request.query.workflow !== undefined ? { workflow: request.query.workflow } : {}),
         ...(request.query.recordId !== undefined ? { recordId: request.query.recordId } : {}),

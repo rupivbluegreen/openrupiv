@@ -178,6 +178,7 @@ export async function createServer(
       policy: policyEngine,
       audit: auditStore,
       logger,
+      appRoles: spec.app.roles ?? [],
     });
   }
   registerPages(app, spec, db, logger);
