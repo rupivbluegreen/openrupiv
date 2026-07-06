@@ -12,11 +12,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
+import type { AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
 import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAdminAuditRoutes } from "./admin";
+import { registerAdminAgentRoutes } from "./admin-agents";
+import type { AgentTaskProcedureRegistry } from "./agent-tasks";
 import { createDbAuditStore } from "./audit";
 import { defaultOidcProvider, registerAuth, type OidcProvider } from "./auth";
 import { assertRuntimeConfig, configFromEnv, type RuntimeConfig } from "./config";
@@ -77,6 +80,14 @@ export interface ServerDeps {
   auditStore?: AuditStore;
   /** Deny-by-default PDP; defaults to the committed OPA WASM bundle (ADR-0006). */
   policyEngine?: PolicyEngine;
+  /**
+   * Optional: governed agent runtime + task procedures. Absent by default —
+   * no real ToolSandbox ships yet (packages/sandbox, ADR-0007), so the
+   * agent-trigger/proposal-listing routes are only registered when a caller
+   * explicitly supplies one (tests inject a fake sandbox; there is no
+   * production default to fall back to — never stub the sandbox boundary).
+   */
+  agents?: { runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry };
 }
 
 /** Build the Fastify server (exported for tests). Does not listen. */
@@ -160,6 +171,15 @@ export async function createServer(
     logger,
     appRoles: spec.app.roles ?? [],
   });
+  if (deps.agents) {
+    registerAdminAgentRoutes(app, {
+      runtime: deps.agents.runtime,
+      procedures: deps.agents.procedures,
+      policy: policyEngine,
+      audit: auditStore,
+      logger,
+    });
+  }
   registerPages(app, spec, db, logger);
 
   // Structured request log. Never the query string (OAuth codes/states),

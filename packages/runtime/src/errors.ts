@@ -44,6 +44,8 @@ export type RuntimeErrorCode =
   | "ERR_AUDIT_APPEND_FAILED"
   /** Internal invariant: a name did not survive SQL identifier checks. */
   | "ERR_SQL_IDENTIFIER"
+  /** Admin agent-trigger: task exists in the spec but has no registered procedure on this deployment. */
+  | "ERR_AGENT_PROCEDURE_UNREGISTERED"
   /** Unclassified internal error. */
   | "ERR_INTERNAL";
 

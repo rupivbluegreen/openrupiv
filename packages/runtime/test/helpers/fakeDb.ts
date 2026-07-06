@@ -18,6 +18,10 @@ type Row = Record<string, unknown>;
 const AUDIT_COLUMNS =
   "seq, timestamp, event, actor, actor_type, subject, decision, attributes, prev_hash, hash";
 
+/** Column list used by @openrupiv/agents' runtime.ts SQL against agent_proposals (exact order). */
+const PROPOSAL_COLUMNS =
+  "id, agent_id, entity_table, record_id, workflow, transition, rationale, created_at";
+
 export interface FakeDbOptions {
   /** Column defaults per table, applied on INSERT when absent. */
   defaults?: Record<string, Record<string, unknown>>;
@@ -35,6 +39,7 @@ export class FakeDb implements Db {
     this.tables.set("workflow_approvals", new Map());
     this.tables.set("_migrations", new Map());
     this.tables.set("audit_log", new Map());
+    this.tables.set("agent_proposals", new Map());
   }
 
   /** audit_log rows in seq order (chain order), for assertions. */
@@ -172,6 +177,60 @@ export class FakeDb implements Db {
         .slice(0, limit)
         .map((r) => ({ ...r }));
       return { rows, rowCount: rows.length };
+    }
+
+    // agent_proposals insert (@openrupiv/agents' runtime.ts propose(), run
+    // inside the SAME db.transaction() as the audit_log insert above — the
+    // HITL atomicity guarantee).
+    if (
+      sql ===
+      `INSERT INTO agent_proposals (${PROPOSAL_COLUMNS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`
+    ) {
+      const [id, agentId, entityTable, recordId, workflow, transition, rationale, createdAt] =
+        params;
+      this.table("agent_proposals").set(String(id), {
+        id,
+        agent_id: agentId,
+        entity_table: entityTable,
+        record_id: recordId,
+        workflow,
+        transition,
+        rationale,
+        created_at: createdAt,
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    // agent_proposals select (@openrupiv/agents' runtime.ts listProposals()),
+    // optional `WHERE workflow = $n [AND record_id = $m]` in either
+    // combination.
+    m = new RegExp(
+      `^SELECT ${PROPOSAL_COLUMNS} FROM agent_proposals(.*) ORDER BY created_at ASC, id ASC$`,
+    ).exec(sql);
+    if (m) {
+      const whereClause = (m[1] ?? "").trim();
+      let matched = this.rows("agent_proposals");
+      if (whereClause.length > 0) {
+        if (!whereClause.startsWith("WHERE ")) {
+          throw new Error(`FakeDb: unhandled proposal filter clause: ${whereClause}`);
+        }
+        const conditions = whereClause.slice("WHERE ".length).split(" AND ");
+        for (const condition of conditions) {
+          const cm = /^(workflow|record_id) = \$(\d+)$/.exec(condition.trim());
+          if (!cm) throw new Error(`FakeDb: unhandled proposal filter condition: ${condition}`);
+          const column = cm[1] as string;
+          const index = Number(cm[2]) - 1;
+          const value = params[index];
+          matched = matched.filter((r) => r[column] === value);
+        }
+      }
+      matched = [...matched].sort((a, b) => {
+        const at = new Date(String(a["created_at"])).getTime();
+        const bt = new Date(String(b["created_at"])).getTime();
+        if (at !== bt) return at - bt;
+        return String(a["id"]).localeCompare(String(b["id"]));
+      });
+      return { rows: matched.map((r) => ({ ...r })), rowCount: matched.length };
     }
 
     // n-eyes approval insert with conflict-skip on the UNIQUE constraint.

@@ -36,6 +36,16 @@ export {
   auditBestEffort,
 } from "./audit";
 export { AUDIT_READ_ROLES, registerAdminAuditRoutes } from "./admin";
+export { registerAdminAgentRoutes, AGENT_TRIGGER_ROLES, type AdminAgentsDeps } from "./admin-agents";
+export {
+  DEMO_REGISTERED_TOOLS,
+  DEMO_TASK_PROCEDURES,
+  READ_VENDOR_APPLICATION_TOOL,
+  VENDOR_RISK_REVIEW_TASK,
+  type AgentTaskOutcome,
+  type AgentTaskProcedure,
+  type AgentTaskProcedureRegistry,
+} from "./agent-tasks";
 export { escapeHtml } from "./pages";
 export {
   executeTransition,
