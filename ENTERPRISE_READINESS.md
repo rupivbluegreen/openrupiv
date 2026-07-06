@@ -7,10 +7,14 @@ table.** Statuses: ✅ shipped (enforced, logged, evidenced) · 🚧 in progress
 Rule: a control that doesn't enforce, log, and produce evidence doesn't ship —
 the dependent feature is gated instead. "Shipped" here means all three.
 
-_Last updated: 2026-07-06 (Phase 2 runtime wiring: audit events + RBAC-via-PDP
+_Last updated: 2026-07-07 (Phase 2 runtime wiring: audit events + RBAC-via-PDP
 implemented and unit/integration-tested; pending human maintainer review of the
 auth/authz/audit-integrity paths before these count as shipped; @openrupiv/spec v0.2
-agents schema landed)._
+agents schema landed; agent-trigger route, MCP client+server, and A2A endpoint
+now wired into `@openrupiv/runtime` and proven end-to-end — all gated off in
+production by default pending the real tool sandbox and human maintainer
+review of three new `auth.ts` touches and two interim bearer-verification
+choices)._
 
 ## Identity & access
 
@@ -51,7 +55,9 @@ agents schema landed)._
 | Retention policies | 📋 M7 |
 | Data-residency config | 📋 M7 |
 | Model/agent registry with AI Act risk classification | 📋 M7 |
-| HITL gates | 🚧 `@openrupiv/agents` — governed agent runtime built + tested (deny-by-default tool allowlist, 6-step policy-checked + audited tool calls, atomic propose()-only HITL primitive, fail-fast startup validation of tool allowlists; agent proposals never touch `workflow_approvals` or fire transitions). `@openrupiv/spec` v0.2 now supports real agent task declarations (`tools`, `proposes`), compiled and golden-corpus-covered. `@openrupiv/mcp` — MCP client + server built + tested (deny-by-default egress/exposure, policy-checked + audited both directions). Neither agents nor MCP is wired into the runtime yet — no agent can trigger a real proposal and no MCP endpoint is live today; the real Python tool sandbox (ADR-0007) also isn't built, so `ToolSandbox` is fakes-only in these tests |
+| HITL gates | 🚧 Wired into the runtime: `POST /admin/agents/:task/run` triggers a governed agent task (deny-by-default tool allowlist, policy-checked + audited tool calls), which can `propose()` a human-gated transition; `GET /admin/agent-proposals` lists them. Proven end-to-end (`packages/runtime/test/agent-approval-e2e.test.ts`): an agent proposal plus one human approval leaves a 4-eyes transition pending, with real assertions on the audit trail (`agent.tool_call` decision:"allow", `agent.transition_proposed`) — a second, distinct human approver is still required. Gated OFF in production by default: no real Python tool sandbox exists yet (ADR-0007, `packages/sandbox` not built), so `ServerDeps.agents` has no production default (`serveAppDir` never populates it) and the trigger/proposal-listing routes are simply not registered until a deployment supplies a real `ToolSandbox` by calling `createServer` directly. `@openrupiv/spec` v0.2 supports real agent task declarations (`tools`, `proposes`), compiled and golden-corpus-covered. The one shipped task, `vendor-risk-review`, is a fixed deterministic procedure (not an LLM planner) |
+| MCP (client + server) | 🚧 `POST /mcp` is mounted by default, exposing one read-only capability, `workflow-instance-status`. The client (`MCP_SERVERS_CONFIG` env var) is inert until a deployment configures at least one external server. Inbound bearer verification is an interim, PROPOSED choice (reuses the platform's own signed session token via the existing `verifyPayload` path, not third-party OIDC token introspection) pending maintainer review. Note: `workflow-instance-status` has no row-level/ownership scoping — any authenticated subject can read any workflow-tracked entity's status by table+id. This matches the platform's existing `GET /api/<entity>/:id` route exactly (entity *reads* are not RBAC-gated anywhere in v0.2, only workflow *transitions* are) — an intentional, pre-existing characteristic, not a new gap |
+| A2A (agent-to-agent) | 🚧 `POST /a2a/v1` (`SendMessage`, `GetTask`) + `GET /.well-known/agent-card.json`, deny-by-default: disabled unless a deployment supplies both a real agent-runtime dependency (`deps.agents`) and a non-empty A2A client registry (`deps.a2a`) — neither has a production default, same gating as the HITL-gates row above. Inbound client verification is an interim, PROPOSED shared-secret choice (one env-var-named secret per registered client, constant-time compared), not the OAuth client-credentials grant the design doc describes, pending maintainer review. The agent-card route is public discovery metadata by default (per the A2A spec), with an opt-in `agentCardRequireAuth` flag for regulated deployments |
 | Annex IV / RoPA / DPIA generators | 📋 M7–M8 |
 | Eval harness | 📋 M8 |
 

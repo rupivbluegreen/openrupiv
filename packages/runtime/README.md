@@ -91,6 +91,7 @@ If `OIDC_CLIENT_SECRET` equals the bundled Compose/Dex dev secret
 | `GET /p/<page>` | server-rendered list / detail (`?id=`) / form page |
 | `GET /admin/audit?fromSeq=&limit=&verify=` | page of the audit chain in seq order; pass `verify=full` for the overall `verify()` status (below) |
 | `GET /admin/audit/export?format=jsonl\|otlp\|syslog` | SIEM export of the full chain, streamed record-by-record |
+| `POST /admin/agents/:task/run`, `GET /admin/agent-proposals`, `POST /mcp`, `GET /.well-known/agent-card.json`, `POST /a2a/v1` | Phase 2 agents/MCP/A2A surfaces — not all mounted by default; see the "Agents, MCP, and A2A" section below |
 
 Entity names map `VendorApplication` → table `vendor_application`, API path
 `/api/vendor-application`; fields map `contactEmail` → `contact_email`, and
@@ -213,6 +214,150 @@ is excluded from the subject's effective role set before this check runs,
 even though both are literal strings on the same OIDC roles claim. The
 decision itself (allow and deny) is audited, fail-closed.
 
+## Agents, MCP, and A2A (Phase 2, specs/phase-2-contracts.md §4–§6)
+
+Phase 2 also wires three optional surfaces on top of the audit/policy
+substrates above: a governed agent-task trigger, an MCP client + server, and
+an A2A (agent-to-agent) endpoint. All three build on `@openrupiv/agents` and
+`@openrupiv/mcp`.
+
+### `ServerDeps` seams — what's on by default in production
+
+`createServer`'s `deps` parameter (`ServerDeps`) gains three more optional
+fields:
+
+| Field | Purpose | Default in `serveAppDir` (production) |
+|---|---|---|
+| `agents` | `{ runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry }` — a governed `@openrupiv/agents` runtime plus the task-procedure registry below | **absent.** `serveAppDir` only ever passes `{ db, logger }` to `createServer` — there is no production default |
+| `mcpClient` | An `@openrupiv/mcp` client for consuming *external* MCP servers as connectors | built automatically from `config.mcpServersConfigPath` (`MCP_SERVERS_CONFIG` env var); **inert** (`{ servers: [] }`) if that env var is unset — no config, no outbound egress |
+| `a2a` | `A2aConfig` — the registered A2A client allowlist + `agentCardRequireAuth` flag | **absent** — same as `agents` |
+
+`agents` has no production default because no real Python tool sandbox
+exists yet (`packages/sandbox`,
+[ADR-0007](../../docs/adr/0007-agent-sandbox-bubblewrap-sidecar.md), status:
+proposed, human-only review path) — there is nothing honest to default
+`AgentRuntime`'s `sandbox` dependency to, so the seam is left unpopulated
+rather than backed by a stub. Note also that `RuntimeConfig` declares an
+`a2a` shape (`clients`, `agentCardRequireAuth`) but **nothing in
+`configFromEnv`/`serveAppDir` reads it yet** — turning on agents or A2A
+today means embedding the runtime programmatically (calling `createServer`
+directly with `deps.agents`/`deps.a2a` supplied by a caller that owns a real
+`ToolSandbox` and a real client registry), not setting an env var. Tests do
+exactly this with a fake sandbox (`FakeToolSandbox`); production has no such
+fake to fall back to. Because A2A dispatch needs a real agent runtime to run
+against, `deps.a2a` is only honored when `deps.agents` is also supplied —
+turning on A2A alone is not possible.
+
+### Routes
+
+| Route | Mounted when | Behavior |
+|---|---|---|
+| `POST /admin/agents/:task/run` | `deps.agents` supplied | Runs a spec-declared agent task's fixed procedure (below); `202` with the procedure's outcome. Same authorization posture as `/admin/audit`: session + PDP decision (`agent.trigger`, audited allow/deny), platform-level `admin` role, app-spec roles stripped from the subject first. |
+| `GET /admin/agent-proposals` | `deps.agents` supplied | Lists `agent_proposals` (optionally filtered by `?workflow=`/`?recordId=`), same authorization. |
+| `POST /mcp` | **always** | MCP server surface (`@openrupiv/mcp`), JSON-RPC over Streamable HTTP (`initialize`, `tools/list`, `tools/call`; no SSE/streaming). Exposes exactly one capability today: `workflow-instance-status` (below). |
+| `GET /.well-known/agent-card.json` | `deps.agents` **and** `deps.a2a` supplied (with a non-empty client registry) | A2A discovery document (name/description/version/skills/`securitySchemes`). Public by default per the A2A discovery spec; set `agentCardRequireAuth: true` in `A2aConfig` to require the same bearer as `/a2a/v1` for regulated deployments. |
+| `POST /a2a/v1` | same gate as above | JSON-RPC 2.0: `SendMessage` (dispatches to a task procedure, same registry as the admin trigger route) and `GetTask` (looks up a prior result by id, scoped to the calling client). Requires an `A2A-Version: 1.0` header. |
+
+`POST /mcp` is the one surface mounted unconditionally — its one capability
+doesn't touch the agent sandbox at all, so there is no missing dependency to
+gate it on.
+
+### Interim, PROPOSED bearer-verification choices (flagged for maintainer sign-off)
+
+Both new inbound surfaces need *some* bearer-token verification today, and
+neither gets a full third-party OAuth implementation in this wiring stage.
+Both choices are isolated behind a single `verifyToken`-shaped function
+each, so swapping in real OIDC/OAuth verification later is a localized
+change — but until a maintainer signs off, treat both as interim, same
+spirit as `specs/phase-2-contracts.md`'s "Open questions" section: defaults
+chosen so implementation isn't blocked, not silently final.
+
+1. **MCP inbound (`POST /mcp`)** reuses the platform's own signed
+   session-cookie format as the bearer credential, verified via the
+   existing `verifyPayload`/session-secret path (`session.ts`) — **not**
+   third-party OIDC access-token introspection/JWKS verification against an
+   arbitrary token. Building real OAuth 2.1 resource-server semantics for
+   arbitrary external tokens is materially larger scope than this wiring
+   stage and would duplicate already-hardened code; this keeps every MCP
+   caller's identity flowing through the one reviewed
+   identity-verification path.
+2. **A2A inbound (`POST /a2a/v1`)** is a shared-secret lookup: each
+   configured `A2aClientEntry` names an env var holding its bearer secret
+   (mirroring `@openrupiv/mcp`'s transport `tokenEnv` pattern — the secret
+   value never appears in config), compared in constant time
+   (`timingSafeEqual`). This is **not** the OAuth client-credentials grant
+   `specs/phase-2-contracts.md` §6's open question 11 describes;
+   implementing a real token endpoint is out of scope here.
+
+### `src/auth.ts` — three touches on this wiring, all human-review-required
+
+`src/auth.ts` is on the human-review-required path (CLAUDE.md:
+authentication/authorization). This wiring touched it three times:
+
+1. **Reserved-identity-prefix rejection** (planned): `GET /auth/callback`
+   now rejects any OIDC `sub` carrying a reserved `agent:`/`a2a:` prefix
+   (`401 ERR_RESERVED_IDENTITY_PREFIX`), so a human OIDC login can never
+   collide with a machine identity minted by the agent/A2A surfaces.
+2. **`/mcp` cookie-gate exemption** (an unplanned discovery, made while
+   building the MCP route): the global session-cookie gate (the `onRequest`
+   hook) was blocking `POST /mcp` outright, because MCP callers
+   authenticate via bearer token, not a browser session cookie. Fixed with
+   a narrow, exact-match addition to `isPublicPath`: `pathname === "/mcp"`.
+   This does **not** create an anonymous route — `/mcp` still
+   independently and unconditionally requires its own valid bearer token
+   (`registerMcpServer`'s `verifyToken`), 401ing exactly as before; it only
+   stops *also* demanding a cookie that an MCP caller, never being a
+   browser, could never present.
+3. **`/a2a/v1` and `/.well-known/agent-card.json` cookie-gate exemption**
+   (same pattern, extended for A2A): identical reasoning and the identical
+   "still independently gated" property — `/a2a/v1` requires its own
+   per-client shared-secret bearer; the agent-card route is deliberately
+   public discovery metadata unless `agentCardRequireAuth` is set, in which
+   case `a2a.ts` itself — never this cookie check — enforces it.
+
+All three changes were independently code-traced by task reviewers and
+confirmed to introduce no anonymous-access path. They are called out here
+explicitly because `auth.ts` is a human-only review path — flag all three
+for maintainer sign-off alongside the two bearer-verification choices above,
+not as already-settled.
+
+### The task-procedure registry (`src/agent-tasks.ts`)
+
+Agent tasks run a fixed, deterministic *procedure* — not an LLM planning
+loop (`specs/phase-2-contracts.md` §4, open question 1: "the decision loop
+is deterministic-script-only"). `AgentTaskProcedureRegistry` is a hardcoded,
+ship-time-fixed `Record<taskName, AgentTaskProcedure>`, mirroring the
+existing `RegisteredTool[]` static registry pattern. A procedure receives
+`(ctx: AgentContext, input)` and returns an `AgentTaskOutcome`; it drives
+zero or more `ctx.callTool`/`ctx.propose` calls but never calls
+`ctx.finish` itself — the caller (the admin trigger route or the A2A
+dispatcher) does that once the procedure returns, so both callers observe
+identical lifecycle semantics.
+
+The one shipped demo task, `vendor-risk-review`: reads a `VendorApplication`
+record through the sandboxed, read-only `read-vendor-application` tool,
+then unconditionally proposes the `approve` transition on the
+`vendor-approval` workflow via `ctx.propose(...)` — a fixed procedure, not a
+risk model. It exists to exercise the full path end-to-end (see
+`test/agent-approval-e2e.test.ts`), not as a real risk-review
+implementation.
+
+### A known, existing authorization characteristic: no row-level scoping on `workflow-instance-status`
+
+The one MCP-exposed capability, `workflow-instance-status`
+(`src/mcp-capabilities.ts`), has no row-level/ownership scoping: any
+authenticated subject who passes the capability's policy check (currently
+`allowedRoles: []`, which the OPA policy resolves to "no roles required;
+authenticated subject permitted") can read any workflow-tracked entity's
+status by table + id. This was checked against the platform's **existing**
+`GET /api/<entity>/:id` route (`entities.ts`) and found to be exactly
+consistent with it — `registerEntityRoutes` has no policy-engine dependency
+at all, and the whole v0.2 platform's authorization model gates workflow
+*transitions* via RBAC, not entity *reads*. This is an intentional,
+pre-existing platform characteristic, not a new gap introduced by MCP —
+documented here so a reader auditing MCP exposure doesn't have to trace the
+code themselves to learn it.
+
 ## Migrations
 
 At startup `serveAppDir`:
@@ -287,10 +432,15 @@ Live-stack behavior is covered by the Compose e2e stage.
 ## Security notes for reviewers
 
 Human review required (CLAUDE.md) for: `src/auth.ts` (OIDC + session gate,
-auth audit events), `src/session.ts` (cookie signing/verification),
-`src/config.ts` (dev-credential refusal, secret length), `src/workflows.ts`
-(n-eyes enforcement, PDP wiring, transactional audit appends),
-`src/admin.ts` (audit-read authorization), `src/audit.ts` (append
-fail-closed/best-effort posture). CSRF posture in v0: `SameSite=Lax` cookies
-block cross-site form POSTs; state-changing endpoints are
-cookie-authenticated only.
+auth audit events, the two `isPublicPath` exemptions above), `src/session.ts`
+(cookie signing/verification), `src/config.ts` (dev-credential refusal,
+secret length), `src/workflows.ts` (n-eyes enforcement, PDP wiring,
+transactional audit appends), `src/admin.ts` (audit-read authorization),
+`src/audit.ts` (append fail-closed/best-effort posture). Phase 2's
+agents/MCP/A2A wiring adds three more files to this list: `src/admin-agents.ts`
+(agent-trigger/proposal-listing authorization), `src/a2a.ts` (A2A inbound
+shared-secret bearer verification — interim, PROPOSED, see above), and the
+`verifyToken` callback in `src/server.ts` (MCP inbound session-token bearer
+verification — interim, PROPOSED, see above). CSRF posture in v0:
+`SameSite=Lax` cookies block cross-site form POSTs; state-changing endpoints
+are cookie-authenticated only.
