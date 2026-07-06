@@ -149,3 +149,56 @@ describe("admin agent routes", () => {
     expect(approve.json()).toMatchObject({ status: "pending", approvals: 1, required: 2 });
   });
 });
+
+describe("finding admin-agents-role-namespace-collision: an app-declared role must never satisfy the platform agent.trigger check", () => {
+  // Mirrors admin-audit.test.ts's "audit-role-namespace-collision" test: an
+  // app spec that (perhaps unwisely, but validly) declares its own domain
+  // role named literally "admin" — nothing in validateSpec reserves this
+  // name for the platform, so admin-agents.ts's authorize() must strip any
+  // role also declared by the app spec from the subject's effective role
+  // set before it ever reaches the PDP, even on a literal string match.
+  const collidingSpec = {
+    ...fixtures.vendorOnboardingWithAgentSpec,
+    app: {
+      ...fixtures.vendorOnboardingWithAgentSpec.app,
+      roles: [...(fixtures.vendorOnboardingWithAgentSpec.app.roles ?? []), "admin"],
+    },
+  };
+
+  it("a session holding ONLY the app-granted 'admin' role (not a platform-sourced one) is DENIED agent.trigger", async () => {
+    const db = new FakeDb();
+    const sandbox = new FakeToolSandbox();
+    const agentRuntime = createAgentRuntime(collidingSpec, {
+      db: db as unknown as Parameters<typeof createAgentRuntime>[1]["db"],
+      policy: { decide: async () => ({ allow: true, reason: "test", policyId: "test" }) },
+      audit: {
+        append: async (i: AuditRecordInput) => ({ ...i, seq: 1, timestamp: "t", hash: "h", prevHash: "p" }),
+      } as never,
+      sandbox,
+      tools: DEMO_REGISTERED_TOOLS,
+    });
+    const server = await buildTestServer(collidingSpec, db, {
+      agents: { runtime: agentRuntime, procedures: DEMO_TASK_PROCEDURES },
+    });
+    const row = db.seedRow("vendor_application", {
+      vendor_id: randomUUID(),
+      justification: "we need this vendor",
+      annual_spend: 10_000,
+      status: "in_review",
+    });
+    const recordId = String(row["id"]);
+    // This user's ENTIRE role set is exactly what the app spec declares —
+    // indistinguishable, at the string level, from a genuine platform
+    // "admin". It must still be denied.
+    const appAdmin = { cookie: sessionCookieFor({ sub: "u-app-admin", roles: ["admin"] }) };
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: `/admin/agents/${VENDOR_RISK_REVIEW_TASK}/run`,
+      headers: appAdmin,
+      payload: { recordId },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: "ERR_FORBIDDEN_ROLE" });
+  });
+});
