@@ -60,6 +60,17 @@ describe("compiled app runs standalone with plain node", () => {
     });
   }
 
+  it("vendorOnboardingWithAgentSpec (v0.2, agents section): node --test passes with zero installs", () => {
+    const appDir = writeCompiledApp(fixtures.vendorOnboardingWithAgentSpec);
+    const run = runAppTests(appDir);
+    expect(
+      run.status,
+      `exit ${run.status}\nstdout:\n${run.stdout}\nstderr:\n${run.stderr}`,
+    ).toBe(0);
+    expect(run.stdout).toContain("pass");
+    expect(run.stdout).toContain("fail 0");
+  });
+
   it("declares zero dependencies in the compiled package.json", () => {
     const appDir = writeCompiledApp(fixtures.vendorOnboardingSpec);
     const pkg = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as Record<
