@@ -160,11 +160,23 @@ async function handleSendMessage(
   const dataPart = p.message?.parts?.find((part) => part.kind === "data");
   const input = (dataPart?.data ?? {}) as Record<string, unknown>;
 
+  const identity = { id: `a2a:${client.clientId}`, roles: [] as string[] };
+
   if (!skill || !client.allowedSkills.includes(skill)) {
+    const audited = await safeAudit(deps, {
+      event: "a2a.call",
+      actor: identity.id,
+      actorType: "agent",
+      ...(skill !== undefined ? { subject: skill } : {}),
+      decision: "deny",
+      attributes: { skill: skill ?? null, reason: "skill_not_allowed" },
+    });
+    if (!audited) {
+      return reply.send(rpcError(id, -32000, "audit unavailable"));
+    }
     return reply.send(rpcError(id, -32602, `skill ${JSON.stringify(skill)} is not allowed for client ${client.clientId}`));
   }
 
-  const identity = { id: `a2a:${client.clientId}`, roles: [] as string[] };
   const decision = await deps.policy.decide({
     subject: identity,
     action: `a2a.skill:${skill}`,
@@ -208,9 +220,18 @@ async function handleSendMessage(
         status = outcome.reason === "proposed" ? "completed" : "failed";
         result = outcome;
       } catch (error) {
-        await ctx.finish({ reason: "error", detail: { message: error instanceof Error ? error.message : String(error) } });
+        const message = error instanceof Error ? error.message : String(error);
+        deps.logger.error(
+          { event: "a2a.task_failed", skill, clientId: client.clientId, err: error },
+          "A2A task procedure failed unexpectedly",
+        );
+        // The real detail stays in the internal lifecycle/audit record
+        // (ctx.finish); the external, potentially adversarial A2A caller only
+        // ever sees a generic message, mirroring server.ts's ERR_INTERNAL
+        // scrubbing for unexpected errors.
+        await ctx.finish({ reason: "error", detail: { message } });
         status = "failed";
-        result = { message: error instanceof Error ? error.message : String(error) };
+        result = { message: "task execution failed" };
       }
     }
   }
