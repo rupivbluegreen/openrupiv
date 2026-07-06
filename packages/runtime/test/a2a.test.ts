@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createAgentRuntime } from "@openrupiv/agents";
+import { createAgentRuntime, type AgentRuntime } from "@openrupiv/agents";
 import { rowToRecord, type AuditRecord } from "@openrupiv/audit";
 import { fixtures } from "@openrupiv/spec";
 import {
@@ -19,7 +19,12 @@ function auditRecords(db: FakeDb): AuditRecord[] {
   return db.auditRows().map(rowToRecord);
 }
 
-async function buildA2aServer(db: FakeDb, sandbox: FakeToolSandbox, procedures: AgentTaskProcedureRegistry = DEMO_TASK_PROCEDURES) {
+async function buildA2aServer(
+  db: FakeDb,
+  sandbox: FakeToolSandbox,
+  procedures: AgentTaskProcedureRegistry = DEMO_TASK_PROCEDURES,
+  wrapAgentRuntime: (real: AgentRuntime) => AgentRuntime = (real) => real,
+) {
   const agentRuntime = createAgentRuntime(spec, {
     db: db as never,
     policy: { decide: async () => ({ allow: true, reason: "test", policyId: "test" }) },
@@ -29,7 +34,7 @@ async function buildA2aServer(db: FakeDb, sandbox: FakeToolSandbox, procedures: 
   });
   process.env["OPENRUPIV_TEST_A2A_SECRET"] = "test-a2a-shared-secret";
   return buildTestServer(spec, db, {
-    agents: { runtime: agentRuntime, procedures },
+    agents: { runtime: wrapAgentRuntime(agentRuntime), procedures },
     a2a: {
       clients: [{ clientId: "partner-agent", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_SECRET" }],
       agentCardRequireAuth: false,
@@ -157,6 +162,54 @@ describe("A2A endpoint", () => {
     // fields directly — JSON.stringify on a bare Error drops `.message`
     // since it's non-enumerable, so this must not go through JSON first).
     const logged = server.logger.find("a2a.task_failed");
+    expect(logged).toBeDefined();
+    expect(logged?.fields["err"]).toBe(boom);
+    expect((logged?.fields["err"] as Error).message).toContain("hunter2");
+
+    // The a2a_tasks row persisted for this client mirrors the SAME scrubbed
+    // result the caller received (not the raw error).
+    const taskId = body.result.id as string;
+    const taskRows = db.rows("a2a_tasks");
+    const stored = taskRows.find((r) => r["id"] === taskId);
+    expect(stored?.["status"]).toBe("failed");
+    expect(JSON.stringify(stored?.["result"])).not.toContain("hunter2");
+  });
+
+  it("an unexpected contextFor lookup error returns a generic message to the external caller and logs the real error server-side", async () => {
+    const db = new FakeDb();
+    const boom = new Error("dsn=postgres://user:hunter2@internal-db.corp/secret-schema");
+    const server = await buildA2aServer(db, new FakeToolSandbox(), DEMO_TASK_PROCEDURES, (real) => ({
+      contextFor: (taskName: string) => {
+        if (taskName === VENDOR_RISK_REVIEW_TASK) throw boom;
+        return real.contextFor(taskName);
+      },
+      listProposals: (opts) => real.listProposals(opts),
+    }));
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer test-a2a-shared-secret", "a2a-version": "1.0" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        params: { skill: VENDOR_RISK_REVIEW_TASK, message: { parts: [{ kind: "data", data: {} }] } },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.result.status.state).toBe("failed");
+    // The external caller must never see the raw error text.
+    expect(body.result.result.message).toBe("task lookup failed");
+    expect(JSON.stringify(body)).not.toContain("hunter2");
+    expect(JSON.stringify(body)).not.toContain(boom.message);
+
+    // The real error IS logged server-side for operators (checked on the
+    // fields directly — JSON.stringify on a bare Error drops `.message`
+    // since it's non-enumerable, so this must not go through JSON first).
+    const logged = server.logger.find("a2a.task_lookup_failed");
     expect(logged).toBeDefined();
     expect(logged?.fields["err"]).toBe(boom);
     expect((logged?.fields["err"] as Error).message).toContain("hunter2");

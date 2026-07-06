@@ -210,8 +210,20 @@ async function handleSendMessage(
     try {
       ctx = deps.agentRuntime.contextFor(skill);
     } catch (error) {
+      if (error instanceof AgentTaskNotFoundError) {
+        result = { message: error.message };
+      } else {
+        deps.logger.error(
+          { event: "a2a.task_lookup_failed", skill, clientId: client.clientId, err: error },
+          "A2A contextFor lookup failed unexpectedly",
+        );
+        // Same scrubbing posture as the procedure-execution catch below: the
+        // real detail is logged server-side only; the external, potentially
+        // adversarial A2A caller only ever sees a generic message, mirroring
+        // server.ts's ERR_INTERNAL scrubbing for unexpected errors.
+        result = { message: "task lookup failed" };
+      }
       status = "failed";
-      result = { message: error instanceof AgentTaskNotFoundError ? error.message : String(error) };
     }
     if (ctx) {
       try {

@@ -237,15 +237,15 @@ exists yet (`packages/sandbox`,
 [ADR-0007](../../docs/adr/0007-agent-sandbox-bubblewrap-sidecar.md), status:
 proposed, human-only review path) — there is nothing honest to default
 `AgentRuntime`'s `sandbox` dependency to, so the seam is left unpopulated
-rather than backed by a stub. Note also that `RuntimeConfig` declares an
-`a2a` shape (`clients`, `agentCardRequireAuth`) but **nothing in the runtime
-reads it yet** — turning on agents or A2A today means embedding the runtime
-programmatically (calling `createServer` directly with `deps.agents`/`deps.a2a`
-supplied by a caller that owns a real `ToolSandbox` and a real client registry),
-not setting an env var. Tests do exactly this with a fake sandbox
-(`FakeToolSandbox`); production has no such fake to fall back to. Because A2A
-dispatch needs a real agent runtime to run against, `deps.a2a` is only honored
-when `deps.agents` is also supplied — turning on A2A alone is not possible.
+rather than backed by a stub. Turning on agents or A2A today means embedding
+the runtime programmatically (calling `createServer` directly with
+`deps.agents`/`deps.a2a` supplied by a caller that owns a real `ToolSandbox`
+and a real client registry) — there is no env-var path to configure A2A;
+`RuntimeConfig` (the env-derived config in `config.ts`) has no `a2a` field.
+Tests do exactly this with a fake sandbox (`FakeToolSandbox`); production has
+no such fake to fall back to. Because A2A dispatch needs a real agent runtime
+to run against, `deps.a2a` is only honored when `deps.agents` is also
+supplied — turning on A2A alone is not possible.
 
 ### Routes
 
