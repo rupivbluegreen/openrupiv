@@ -9,8 +9,10 @@
  * the browser flow stays usable; JSON requests get JSON responses.
  */
 
+import type { AuditStore } from "@openrupiv/audit";
 import type { AppSpec } from "@openrupiv/spec";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { appendOrFail } from "./audit";
 import type { Db } from "./db";
 import { RuntimeError } from "./errors";
 import type { Logger } from "./logger";
@@ -29,6 +31,44 @@ function bodySource(request: FastifyRequest): BodySource {
   return contentType.includes("application/x-www-form-urlencoded")
     ? "form"
     : "json";
+}
+
+/**
+ * Validate a create/update body; if the caller attempted to write a workflow
+ * state field (ERR_STATE_FIELD_READONLY), append the contract §2 rejection
+ * event `workflow.state_write_rejected` to the audit log — fail-closed —
+ * before rethrowing. The append uses its own connection/transaction, so the
+ * rejection evidence persists even though the request fails.
+ */
+async function validateBodyAudited(
+  model: EntityModel,
+  request: FastifyRequest,
+  mode: "create" | "update",
+  source: BodySource,
+  audit: AuditStore,
+  logger: Logger,
+  recordId?: string,
+): Promise<Map<string, unknown>> {
+  try {
+    return validateBody(model, request.body ?? {}, mode, source);
+  } catch (error) {
+    if (error instanceof RuntimeError && error.code === "ERR_STATE_FIELD_READONLY") {
+      const field = (error.details as { field?: unknown } | undefined)?.field;
+      await appendOrFail(audit, logger, {
+        event: "workflow.state_write_rejected",
+        actor: request.session?.sub ?? "system",
+        actorType: request.session ? "human" : "system",
+        ...(recordId !== undefined ? { subject: `${model.table}:${recordId}` } : {}),
+        decision: "deny",
+        attributes: {
+          entityTable: model.table,
+          mode,
+          ...(typeof field === "string" ? { field } : {}),
+        },
+      });
+    }
+    throw error;
+  }
 }
 
 async function insertRecord(
@@ -75,6 +115,7 @@ export function registerEntityRoutes(
   spec: AppSpec,
   db: Db,
   logger: Logger,
+  audit: AuditStore,
 ): void {
   for (const entity of spec.entities) {
     const model = buildEntityModel(spec, entity);
@@ -92,7 +133,7 @@ export function registerEntityRoutes(
 
     app.post(base, async (request, reply) => {
       const source = bodySource(request);
-      const data = validateBody(model, request.body ?? {}, "create", source);
+      const data = await validateBodyAudited(model, request, "create", source, audit, logger);
       const row = await insertRecord(db, model, data);
       const record = rowToRecord(model, row);
       logger.info(
@@ -127,7 +168,7 @@ export function registerEntityRoutes(
     app.put<{ Params: { id: string } }>(`${base}/:id`, async (request, reply) => {
       const id = requireUuid(request.params.id);
       const source = bodySource(request);
-      const data = validateBody(model, request.body ?? {}, "update", source);
+      const data = await validateBodyAudited(model, request, "update", source, audit, logger, id);
       if (data.size === 0) {
         throw new RuntimeError("ERR_VALIDATION", "no updatable fields in request body", {
           statusCode: 400,

@@ -16,12 +16,15 @@
  *   library's HTTPS-only enforcement stands.
  */
 
+import { createHash } from "node:crypto";
+import type { AuditRecordInput, AuditStore } from "@openrupiv/audit";
 import type {
   FastifyInstance,
   FastifyReply,
   FastifyRequest,
 } from "fastify";
 import * as oidc from "openid-client";
+import { auditBestEffort } from "./audit";
 import type { RuntimeConfig } from "./config";
 import { RuntimeError } from "./errors";
 import type { Logger } from "./logger";
@@ -143,35 +146,127 @@ function pathnameOf(request: FastifyRequest): string {
   return queryStart === -1 ? url : url.slice(0, queryStart);
 }
 
+/**
+ * Bounds how often an invalid session cookie durably audits
+ * `auth.session_rejected` (finding "unauth-unbounded-audit-writes"): one
+ * stale browser cookie must not re-append (and re-take the audit chain's
+ * tail lock) on every single subsequent request.
+ *
+ * Two independent caps, both "fail open" toward SKIPPING the append (never
+ * toward silently dropping the observability signal — the structured warn
+ * log always fires regardless, at full fidelity, in the caller):
+ *   - Per-cookie dedup: the SAME rejected cookie value is audited once per
+ *     TTL window, keyed by a hash (never the raw cookie) so nothing
+ *     sensitive is retained.
+ *   - A coarser rolling-window cap on NEW distinct rejections, so a caller
+ *     who defeats the per-cookie dedup by sending a fresh garbage cookie on
+ *     every request still cannot grow the log unboundedly.
+ * Both caches are bounded in memory (capped entries, TTL-expired), so the
+ * limiter itself cannot become the unbounded-growth problem it exists to
+ * prevent.
+ */
+export function createRejectedCookieLimiter(
+  options: {
+    dedupTtlMs?: number;
+    dedupMaxEntries?: number;
+    windowMs?: number;
+    windowMaxAppends?: number;
+    now?: () => number;
+  } = {},
+): { shouldAppend: (cookieValue: string) => boolean } {
+  const dedupTtlMs = options.dedupTtlMs ?? 5 * 60_000;
+  const dedupMaxEntries = options.dedupMaxEntries ?? 500;
+  const windowMs = options.windowMs ?? 60_000;
+  const windowMaxAppends = options.windowMaxAppends ?? 20;
+  const now = options.now ?? (() => Date.now());
+
+  const seen = new Map<string, number>(); // sha256(cookie) -> expiry (epoch ms)
+  let windowStart = now();
+  let windowCount = 0;
+
+  return {
+    shouldAppend(cookieValue: string): boolean {
+      const t = now();
+      const hash = createHash("sha256").update(cookieValue).digest("hex");
+      const expiry = seen.get(hash);
+      if (expiry !== undefined && expiry > t) return false;
+
+      if (t - windowStart >= windowMs) {
+        windowStart = t;
+        windowCount = 0;
+      }
+      if (windowCount >= windowMaxAppends) return false;
+      windowCount++;
+
+      if (seen.size >= dedupMaxEntries) {
+        const oldest = seen.keys().next().value;
+        if (oldest !== undefined) seen.delete(oldest);
+      }
+      seen.set(hash, t + dedupTtlMs);
+      return true;
+    },
+  };
+}
+
 export function registerAuth(
   app: FastifyInstance,
   config: RuntimeConfig,
   logger: Logger,
   provider: OidcProvider,
   appRoles: readonly string[] = [],
+  audit?: AuditStore,
 ): void {
   const secret = config.sessionSecret;
   const redirectUri = `${config.baseUrl.replace(/\/+$/, "")}/auth/callback`;
 
+  // Auth events have no DB side effect to bind to, so they append
+  // BEST-EFFORT (contract §2): an audit failure is logged at error level with
+  // the event preserved and never blocks login/logout. attributes carry no
+  // secrets/tokens — only subs, roles, and rejection reasons.
+  const record = (input: AuditRecordInput): Promise<void> =>
+    audit ? auditBestEffort(audit, logger, input) : Promise.resolve();
+
+  // Finding "unauth-unbounded-audit-writes": bounds how often a rejected
+  // session cookie durably audits, independent of the request rate.
+  const rejectedCookieLimiter = createRejectedCookieLimiter();
+
   // ---- Session gate: every route, no exceptions beyond the allowlist. ----
   app.addHook("onRequest", async (request, reply) => {
+    const pathname = pathnameOf(request);
     const rawCookie = request.cookies[SESSION_COOKIE_NAME];
     if (rawCookie) {
       const verified = verifyPayload<SessionData>(rawCookie, secret, "session");
       if (verified.ok && isSessionData(verified.payload)) {
         request.session = verified.payload;
       } else {
+        const reason = verified.ok ? "not_session_data" : verified.reason;
+        // Always logged, at full fidelity, regardless of path or dedup below
+        // — only the durable audit append (and its chain-tail lock) is
+        // bounded, never the observability signal.
         logger.warn(
-          {
-            event: "auth.session_rejected",
-            reason: verified.ok ? "not_session_data" : verified.reason,
-          },
+          { event: "auth.session_rejected", reason },
           "session cookie rejected",
         );
+        // The cookie will never verify again (bad signature, expiry, wrong
+        // purpose, ...) — clear it so the browser stops resending it and
+        // re-triggering this rejection on every subsequent request. Options
+        // must match how the cookie was originally set for the browser to
+        // actually delete it.
+        reply.clearCookie(SESSION_COOKIE_NAME, cookieOptions(config, 0));
+        // Public paths (/healthz, /auth/*) must never pay a DB round trip
+        // for garbage cookie junk — a stray cookie on /healthz should stay
+        // as cheap as /healthz always has been.
+        if (!isPublicPath(pathname) && rejectedCookieLimiter.shouldAppend(rawCookie)) {
+          await record({
+            event: "auth.session_rejected",
+            actor: "system",
+            actorType: "system",
+            attributes: { reason },
+          });
+        }
       }
     }
 
-    const pathname = pathnameOf(request);
     if (isPublicPath(pathname)) return;
 
     if (!request.session) {
@@ -299,6 +394,12 @@ export function registerAuth(
         { event: "auth.dev_role_grant", sub: claims.sub, roles },
         "DEV MODE: granting all app roles to user with no roles claim — never enable OPENRUPIV_DEV_MODE in production",
       );
+      await record({
+        event: "auth.dev_role_grant",
+        actor: claims.sub,
+        actorType: "human",
+        attributes: { roles },
+      });
     }
     const email = typeof claims["email"] === "string" ? claims["email"] : undefined;
     const session = createSession({ sub: claims.sub, email, roles });
@@ -313,6 +414,12 @@ export function registerAuth(
       { event: "auth.login", sub: session.sub, roles: session.roles },
       "user logged in",
     );
+    await record({
+      event: "auth.login",
+      actor: session.sub,
+      actorType: "human",
+      attributes: { roles: session.roles },
+    });
     await reply.redirect(txn.returnTo, 303);
   });
 
@@ -323,6 +430,11 @@ export function registerAuth(
         { event: "auth.logout", sub: request.session.sub },
         "user logged out",
       );
+      await record({
+        event: "auth.logout",
+        actor: request.session.sub,
+        actorType: "human",
+      });
     }
     reply.clearCookie(SESSION_COOKIE_NAME, { path: "/" });
     const contentType = request.headers["content-type"] ?? "";

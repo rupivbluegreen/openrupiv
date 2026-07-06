@@ -38,6 +38,8 @@ export type RuntimeErrorCode =
   | "ERR_GUARD_FAILED"
   /** n-eyes: the same user attempted a second approval. */
   | "ERR_DUPLICATE_APPROVER"
+  /** An audit append failed; the request fails closed (Phase 2 contract §2). */
+  | "ERR_AUDIT_APPEND_FAILED"
   /** Internal invariant: a name did not survive SQL identifier checks. */
   | "ERR_SQL_IDENTIFIER"
   /** Unclassified internal error. */
