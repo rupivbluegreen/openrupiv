@@ -11,10 +11,12 @@ _Last updated: 2026-07-07 (Phase 2 runtime wiring: audit events + RBAC-via-PDP
 implemented and unit/integration-tested; pending human maintainer review of the
 auth/authz/audit-integrity paths before these count as shipped; @openrupiv/spec v0.2
 agents schema landed; agent-trigger route, MCP client+server, and A2A endpoint
-now wired into `@openrupiv/runtime` and proven end-to-end — all gated off in
-production by default pending the real tool sandbox and human maintainer
-review of three new `auth.ts` touches and two interim bearer-verification
-choices)._
+now wired into `@openrupiv/runtime` and proven end-to-end — the agent-trigger
+route and A2A endpoint are gated off in production by default pending the real
+tool sandbox; the MCP server route is mounted by default with one read-only
+capability, and the MCP client is inert absent `MCP_SERVERS_CONFIG`; pending
+human maintainer review of three new `auth.ts` touches and two interim
+bearer-verification choices)._
 
 ## Identity & access
 

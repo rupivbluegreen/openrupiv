@@ -217,9 +217,9 @@ decision itself (allow and deny) is audited, fail-closed.
 ## Agents, MCP, and A2A (Phase 2, specs/phase-2-contracts.md §4–§6)
 
 Phase 2 also wires three optional surfaces on top of the audit/policy
-substrates above: a governed agent-task trigger, an MCP client + server, and
-an A2A (agent-to-agent) endpoint. All three build on `@openrupiv/agents` and
-`@openrupiv/mcp`.
+substrates above, each independently gated — see defaults below: a governed
+agent-task trigger, an MCP client + server, and an A2A (agent-to-agent)
+endpoint. All three build on `@openrupiv/agents` and `@openrupiv/mcp`.
 
 ### `ServerDeps` seams — what's on by default in production
 
@@ -238,15 +238,14 @@ exists yet (`packages/sandbox`,
 proposed, human-only review path) — there is nothing honest to default
 `AgentRuntime`'s `sandbox` dependency to, so the seam is left unpopulated
 rather than backed by a stub. Note also that `RuntimeConfig` declares an
-`a2a` shape (`clients`, `agentCardRequireAuth`) but **nothing in
-`configFromEnv`/`serveAppDir` reads it yet** — turning on agents or A2A
-today means embedding the runtime programmatically (calling `createServer`
-directly with `deps.agents`/`deps.a2a` supplied by a caller that owns a real
-`ToolSandbox` and a real client registry), not setting an env var. Tests do
-exactly this with a fake sandbox (`FakeToolSandbox`); production has no such
-fake to fall back to. Because A2A dispatch needs a real agent runtime to run
-against, `deps.a2a` is only honored when `deps.agents` is also supplied —
-turning on A2A alone is not possible.
+`a2a` shape (`clients`, `agentCardRequireAuth`) but **nothing in the runtime
+reads it yet** — turning on agents or A2A today means embedding the runtime
+programmatically (calling `createServer` directly with `deps.agents`/`deps.a2a`
+supplied by a caller that owns a real `ToolSandbox` and a real client registry),
+not setting an env var. Tests do exactly this with a fake sandbox
+(`FakeToolSandbox`); production has no such fake to fall back to. Because A2A
+dispatch needs a real agent runtime to run against, `deps.a2a` is only honored
+when `deps.agents` is also supplied — turning on A2A alone is not possible.
 
 ### Routes
 
