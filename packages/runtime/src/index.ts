@@ -17,10 +17,12 @@ export { createPgDb, type Db, type Queryable, type QueryResultLike } from "./db"
 export { applyMigrations, ensureInfraTables } from "./migrate";
 export {
   createSession,
+  isSessionData,
   signPayload,
   verifyPayload,
   cookieOptions,
   SESSION_COOKIE_NAME,
+  type CookiePurpose,
   type SessionData,
   type VerifyResult,
 } from "./session";

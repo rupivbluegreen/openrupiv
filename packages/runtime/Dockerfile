@@ -29,13 +29,21 @@ RUN corepack enable
 
 WORKDIR /workspace
 
-# Workspace manifests first for layer caching, then the packages. The runtime
-# runs from TypeScript source via tsx in v0, so dev dependencies are installed
-# (--prod=false) — tsx and typescript live in the root devDependencies.
+# Install as root for cache/permission simplicity. Workspace manifests first
+# for layer caching, then the packages. The runtime runs from TypeScript
+# source via tsx in v0, so dev dependencies are installed (--prod=false) —
+# tsx and typescript live in the root devDependencies. A .dockerignore at the
+# build-context root keeps host node_modules/.env/.git out of the image.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages ./packages
 
-RUN corepack pnpm install --frozen-lockfile --prod=false
+RUN corepack pnpm install --frozen-lockfile --prod=false \
+  && chown -R node:node /workspace
+
+# Drop privileges: the web server runs as the unprivileged built-in `node`
+# user (uid 1000), never root. The mounted APP_DIR is read-only and
+# world-readable, so no ownership change is needed there.
+USER node
 
 EXPOSE 3000
 

@@ -43,5 +43,19 @@ The zero → described-app-running-locally path, end-to-end.
 - OIDC-only authentication from the first commit; no local-auth/password path
   anywhere (ADR-0003).
 - Auth and workflow-enforcement code underwent an adversarial multi-agent
-  security review before Phase 1 was marked complete (see Phase 1 closeout).
-  These remain human-only review paths per `CLAUDE.md`.
+  security review (four independent reviewers, every finding independently
+  verified) before Phase 1 was marked complete. It surfaced and **fixed**
+  five confirmed issues, each with a regression test:
+  - **critical** — a login-transaction cookie could be replayed as a session
+    cookie (no MAC domain separation + no session-shape validation),
+    bypassing authentication entirely. Fixed by binding a cookie *purpose*
+    into the HMAC and validating `SessionData` shape in the session gate.
+  - **high** — the n-eyes rule counted approvals across all time, so a record
+    re-entering an approval's `from` state carried stale approvals and could
+    complete with one fresh approver. Fixed by clearing pending approvals on
+    every state change (round reset).
+  - **medium** — open redirect via a control character in `returnTo`.
+  - **medium** — the runtime container ran as root. Now runs as `node`.
+  - **low** — missing `.dockerignore` risked baking host files into layers.
+  These remain human-only review paths per `CLAUDE.md`; human sign-off is
+  still recommended before any release.

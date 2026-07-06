@@ -197,7 +197,9 @@ describe("workflow transitions (vendor onboarding)", () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ status: "transitioned", state: "approved" });
       expect(currentStatus()).toBe("approved");
-      expect(db.rows("workflow_approvals")).toHaveLength(2);
+      // Completing the transition ends the round: pending approvals are
+      // cleared so a future re-entry starts fresh (revision-loop safety).
+      expect(db.rows("workflow_approvals")).toHaveLength(0);
     });
 
     it("two distinct reviewers also satisfy the rule (same role, different sub)", async () => {
@@ -230,6 +232,33 @@ describe("workflow transitions (vendor onboarding)", () => {
         headers: reviewer1,
       });
       expect(res.json()).toEqual({ status: "transitioned", state: "rejected" });
+    });
+
+    it("SECURITY: stale approvals from a prior round do not carry into a new approval round", async () => {
+      // Round 1: reviewer1 approves (pending 1/2).
+      await server.app.inject({ method: "POST", url: transitionUrl("approve"), headers: reviewer1 });
+      expect(db.rows("workflow_approvals")).toHaveLength(1);
+
+      // The record leaves in_review (reject → rejected): the state change
+      // must clear the pending approval.
+      await server.app.inject({ method: "POST", url: transitionUrl("reject"), headers: reviewer1 });
+      expect(db.rows("workflow_approvals")).toHaveLength(0);
+
+      // Simulate a revision loop returning the record to the approval's
+      // `from` state (a real spec may allow re-entry via a revise path).
+      const row = db.rows("vendor_application")[0] as Record<string, unknown>;
+      db.table("vendor_application").get(String(row["id"]))!["status"] = "in_review";
+
+      // Round 2: a DIFFERENT single approver must NOT complete the 4-eyes
+      // rule on the strength of round 1's stale approval — the bug would let
+      // compliance alone flip the state to approved.
+      const res = await server.app.inject({
+        method: "POST",
+        url: transitionUrl("approve"),
+        headers: compliance,
+      });
+      expect(res.json()).toEqual({ status: "pending", approvals: 1, required: 2 });
+      expect(currentStatus()).toBe("in_review");
     });
 
     it("final approval and state flip are ATOMIC: a failing state update rolls back the approval", async () => {

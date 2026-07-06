@@ -15,6 +15,14 @@ import type { RuntimeConfig } from "./config";
 
 const FORMAT_VERSION = "v1";
 
+/**
+ * Cookie purpose, bound into the MAC input so a token minted for one purpose
+ * cannot be replayed as another. Without this domain separation the
+ * short-lived login-transaction cookie (issued to anyone hitting /auth/login)
+ * verifies as a session cookie — a full authentication bypass.
+ */
+export type CookiePurpose = "session" | "txn";
+
 export const SESSION_COOKIE_NAME = "openrupiv_session";
 export const AUTH_TXN_COOKIE_NAME = "openrupiv_auth_txn";
 
@@ -49,14 +57,25 @@ function mac(data: string, secret: string): Buffer {
   return createHmac("sha256", secret).update(data).digest();
 }
 
-/** Serialize + sign a payload for cookie transport. */
-export function signPayload(payload: object, secret: string): string {
+/** MAC input binds the format version AND the cookie purpose to the body. */
+function macInput(purpose: CookiePurpose, body: string): string {
+  return `${FORMAT_VERSION}.${purpose}.${body}`;
+}
+
+/**
+ * Serialize + sign a payload for cookie transport. `purpose` is bound into the
+ * signature, so a `txn` token never verifies where a `session` token is
+ * expected (and vice versa), even though both use the same secret and format.
+ */
+export function signPayload(
+  payload: object,
+  secret: string,
+  purpose: CookiePurpose,
+): string {
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString(
     "base64url",
   );
-  const signature = mac(`${FORMAT_VERSION}.${body}`, secret).toString(
-    "base64url",
-  );
+  const signature = mac(macInput(purpose, body), secret).toString("base64url");
   return `${FORMAT_VERSION}.${body}.${signature}`;
 }
 
@@ -73,6 +92,7 @@ export type VerifyResult<T> =
 export function verifyPayload<T extends { exp: number }>(
   token: string,
   secret: string,
+  purpose: CookiePurpose,
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): VerifyResult<T> {
   const parts = token.split(".");
@@ -83,7 +103,7 @@ export function verifyPayload<T extends { exp: number }>(
     return { ok: false, reason: "malformed" };
   }
 
-  const expected = mac(`${FORMAT_VERSION}.${body}`, secret);
+  const expected = mac(macInput(purpose, body), secret);
   let actual: Buffer;
   try {
     actual = Buffer.from(signature, "base64url");
@@ -111,6 +131,23 @@ export function verifyPayload<T extends { exp: number }>(
     return { ok: false, reason: "expired" };
   }
   return { ok: true, payload: payload as T };
+}
+
+/**
+ * Structural guard: a verified session token must actually carry identity.
+ * Defense in depth beyond the purpose-bound signature — the session gate
+ * treats anything failing this as unauthenticated.
+ */
+export function isSessionData(payload: unknown): payload is SessionData {
+  if (typeof payload !== "object" || payload === null) return false;
+  const p = payload as Record<string, unknown>;
+  return (
+    typeof p["sub"] === "string" &&
+    p["sub"] !== "" &&
+    Array.isArray(p["roles"]) &&
+    p["roles"].every((r) => typeof r === "string") &&
+    typeof p["exp"] === "number"
+  );
 }
 
 /** Build a SessionData for a just-authenticated user. */

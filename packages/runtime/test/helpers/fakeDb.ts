@@ -123,6 +123,23 @@ export class FakeDb implements Db {
       return { rows: [{ id }], rowCount: 1 };
     }
 
+    // Clear a record's pending approvals on any state change (round reset).
+    if (
+      sql ===
+      "DELETE FROM workflow_approvals WHERE entity_table = $1 AND record_id = $2"
+    ) {
+      const [entityTable, recordId] = params.map(String);
+      const table = this.table("workflow_approvals");
+      let removed = 0;
+      for (const [key, r] of [...table.entries()]) {
+        if (r["entity_table"] === entityTable && r["record_id"] === recordId) {
+          table.delete(key);
+          removed++;
+        }
+      }
+      return { rows: [], rowCount: removed };
+    }
+
     // Distinct approver count for one transition.
     if (
       sql ===

@@ -1,0 +1,20 @@
+# Build context is the monorepo root (see packages/runtime/Dockerfile). Keep
+# host-only and sensitive files out of image layers: node_modules are
+# reinstalled inside the image, and .env / .git must never be baked in.
+**/node_modules
+node_modules
+.git
+.github
+**/dist
+**/coverage
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.pnpm-store
+**/.DS_Store
+# Docs and scratch that the image never needs.
+docs
+specs
+scripts/e2e-quickstart.sh
+*.log

@@ -85,10 +85,35 @@ describe("session gate", () => {
       method: "GET",
       url: "/api/vendor",
       headers: {
-        cookie: `${SESSION_COOKIE_NAME}=${signPayload(stale, TEST_SESSION_SECRET)}`,
+        cookie: `${SESSION_COOKIE_NAME}=${signPayload(stale, TEST_SESSION_SECRET, "session")}`,
       },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("SECURITY: a login-transaction cookie replayed as a session cookie is rejected (no auth bypass)", async () => {
+    const { app, logger } = await buildTestServer(spec, new FakeDb());
+    // Forge exactly what /auth/login hands an unauthenticated caller: a
+    // validly-signed txn payload. Presented in the session slot it must NOT
+    // authenticate — this is the regression test for the critical bypass.
+    const now = Math.floor(Date.now() / 1000);
+    const txn = {
+      state: "s",
+      nonce: "n",
+      codeVerifier: "v",
+      returnTo: "/",
+      iat: now,
+      exp: now + 600,
+    };
+    const txnToken = signPayload(txn, TEST_SESSION_SECRET, "txn");
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/vendor",
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${txnToken}` },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ error: "ERR_UNAUTHENTICATED" });
+    expect(logger.find("auth.session_rejected")).toBeDefined();
   });
 });
 
@@ -223,7 +248,7 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
       .find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))
       ?.split(";")[0]
       ?.slice(`${SESSION_COOKIE_NAME}=`.length) as string;
-    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET);
+    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET, "session");
     expect(verified.ok).toBe(true);
     if (verified.ok) {
       expect(verified.payload.sub).toBe("fake-idp-user");
@@ -238,7 +263,7 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
       .find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))
       ?.split(";")[0]
       ?.slice(`${SESSION_COOKIE_NAME}=`.length) as string;
-    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET);
+    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET, "session");
     expect(verified.ok && verified.payload.roles).toEqual(["compliance"]);
   });
 
@@ -289,7 +314,7 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
       .find((c) => c.startsWith(`${SESSION_COOKIE_NAME}=`))
       ?.split(";")[0]
       ?.slice(`${SESSION_COOKIE_NAME}=`.length) as string;
-    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET);
+    const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET, "session");
     return verified.ok && verified.payload.roles;
   }
 
@@ -367,5 +392,14 @@ describe("sanitizeReturnTo", () => {
     expect(sanitizeReturnTo("/\\evil.example")).toBe("/");
     expect(sanitizeReturnTo(undefined)).toBe("/");
     expect(sanitizeReturnTo(42)).toBe("/");
+  });
+
+  it("SECURITY: rejects control/whitespace chars that a browser strips into a protocol-relative URL", () => {
+    // `/\t/evil.example` → browser removes the tab → `//evil.example`.
+    expect(sanitizeReturnTo("/\t/evil.example")).toBe("/");
+    expect(sanitizeReturnTo("/\n/evil.example")).toBe("/");
+    expect(sanitizeReturnTo("/\r/evil.example")).toBe("/");
+    expect(sanitizeReturnTo("/\u0000/evil.example")).toBe("/");
+    expect(sanitizeReturnTo("/\u007f/evil.example")).toBe("/");
   });
 });

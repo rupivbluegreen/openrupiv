@@ -32,6 +32,7 @@ import {
   SESSION_TTL_SECONDS,
   cookieOptions,
   createSession,
+  isSessionData,
   signPayload,
   verifyPayload,
   type LoginTransaction,
@@ -109,10 +110,16 @@ function wantsHtml(request: FastifyRequest): boolean {
   return typeof accept === "string" && accept.includes("text/html");
 }
 
-/** Only same-site absolute paths are valid post-login destinations. */
+/**
+ * Only same-site absolute paths are valid post-login destinations. Reject any
+ * control/whitespace character first: a browser strips embedded tab/CR/LF from
+ * a URL, so `/\t/evil.example` would collapse to the protocol-relative
+ * `//evil.example` — an open redirect that prefix checks alone miss.
+ */
 export function sanitizeReturnTo(value: unknown): string {
   if (
     typeof value === "string" &&
+    !/[\u0000-\u001f\u007f]/.test(value) &&
     value.startsWith("/") &&
     !value.startsWith("//") &&
     !value.startsWith("/\\")
@@ -150,12 +157,15 @@ export function registerAuth(
   app.addHook("onRequest", async (request, reply) => {
     const rawCookie = request.cookies[SESSION_COOKIE_NAME];
     if (rawCookie) {
-      const verified = verifyPayload<SessionData>(rawCookie, secret);
-      if (verified.ok) {
+      const verified = verifyPayload<SessionData>(rawCookie, secret, "session");
+      if (verified.ok && isSessionData(verified.payload)) {
         request.session = verified.payload;
       } else {
         logger.warn(
-          { event: "auth.session_rejected", reason: verified.reason },
+          {
+            event: "auth.session_rejected",
+            reason: verified.ok ? "not_session_data" : verified.reason,
+          },
           "session cookie rejected",
         );
       }
@@ -204,7 +214,7 @@ export function registerAuth(
       };
       reply.setCookie(
         AUTH_TXN_COOKIE_NAME,
-        signPayload(txn, secret),
+        signPayload(txn, secret, "txn"),
         cookieOptions(config, AUTH_TXN_TTL_SECONDS),
       );
 
@@ -233,7 +243,7 @@ export function registerAuth(
         { statusCode: 400 },
       );
     }
-    const verifiedTxn = verifyPayload<LoginTransaction>(rawTxn, secret);
+    const verifiedTxn = verifyPayload<LoginTransaction>(rawTxn, secret, "txn");
     if (!verifiedTxn.ok) {
       throw new RuntimeError(
         "ERR_OIDC_CALLBACK",
@@ -296,7 +306,7 @@ export function registerAuth(
     reply.clearCookie(AUTH_TXN_COOKIE_NAME, { path: "/" });
     reply.setCookie(
       SESSION_COOKIE_NAME,
-      signPayload(session, secret),
+      signPayload(session, secret, "session"),
       cookieOptions(config, SESSION_TTL_SECONDS),
     );
     logger.info(

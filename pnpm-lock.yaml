@@ -21,6 +21,16 @@ importers:
         specifier: ^3.2.4
         version: 3.2.6(@types/node@20.19.43)(tsx@4.23.0)(yaml@2.9.0)
 
+  packages/audit:
+    dependencies:
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
+
   packages/cli:
     dependencies:
       '@openrupiv/compiler':

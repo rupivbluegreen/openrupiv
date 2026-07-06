@@ -115,5 +115,5 @@ export function sessionCookieFor(
     email: identity.email,
     roles: identity.roles ?? [],
   });
-  return `${SESSION_COOKIE_NAME}=${signPayload(session, secret)}`;
+  return `${SESSION_COOKIE_NAME}=${signPayload(session, secret, "session")}`;
 }

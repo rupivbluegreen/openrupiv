@@ -13,7 +13,7 @@ _Last updated: 2026-07-06 (Phase 1 core landed; e2e-verified via `scripts/e2e-qu
 
 | Requirement | Status |
 |---|---|
-| OIDC SSO | ✅ runtime v0 — Authorization Code + PKCE via discovery, sessions, e2e-verified. Human maintainer review of the auth surface still pending |
+| OIDC SSO | ✅ runtime v0 — Authorization Code + PKCE via discovery, purpose-bound signed sessions, e2e-verified. Passed an adversarial security review (critical replay bypass found + fixed). Human maintainer sign-off still recommended |
 | SAML SSO | 📋 M5 |
 | SCIM provisioning | 📋 M5 |
 | RBAC | 📋 M4 |

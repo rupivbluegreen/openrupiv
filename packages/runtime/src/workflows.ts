@@ -322,6 +322,17 @@ async function setState(
       `state update affected ${String(updated.rowCount)} rows for ${table} ${recordId}`,
     );
   }
+  // Any state change ends the current approval round: pending approvals were
+  // gathered for a transition out of the state we are LEAVING (step 1
+  // guarantees approvals only exist for the current state), so they are now
+  // stale. Clearing them means a record that re-enters an approval's `from`
+  // state must collect a fresh set of N distinct approvers — closing the
+  // revision-loop bypass where stale approvals let one fresh approver
+  // complete an n-eyes transition.
+  await tx.query(
+    "DELETE FROM workflow_approvals WHERE entity_table = $1 AND record_id = $2",
+    [table, recordId],
+  );
 }
 
 /**
