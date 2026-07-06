@@ -10,8 +10,10 @@
  * - Login state (state, nonce, PKCE verifier) lives in a short-lived
  *   HMAC-signed HttpOnly cookie; the session is a longer-lived signed cookie
  *   (see session.ts). No server-side session store in v0.
- * - EVERY route requires a session except /healthz and /auth/*. There is no
- *   anonymous mode (ADR-0003).
+ * - EVERY route requires a session except /healthz, /auth/*, and POST /mcp
+ *   (which independently re-authenticates every request via its own
+ *   bearer-token check instead of this cookie gate — see `isPublicPath`
+ *   below). There is no anonymous mode (ADR-0003).
  * - Plain-http issuers are allowed ONLY in explicit dev mode; otherwise the
  *   library's HTTPS-only enforcement stands.
  */
@@ -105,8 +107,25 @@ export function defaultOidcProvider(
   };
 }
 
+/**
+ * Paths exempt from the cookie-based session gate below.
+ *
+ * `POST /mcp` is NOT an anonymous/public route — ADR-0003's "no anonymous
+ * mode" still holds. It is exempted here only from THIS cookie check
+ * because MCP callers are not browsers and never hold a session cookie;
+ * `registerMcpServer` (mounted in server.ts) independently re-authenticates
+ * every `/mcp` request via its own bearer-token check (`verifyToken`,
+ * currently the platform's own signed session token presented as a Bearer
+ * header instead of a Cookie — see mcp-capabilities.ts/server.ts) and 401s
+ * on a missing/invalid token itself, same as this gate does for cookies.
+ *
+ * SECURITY-CRITICAL — human maintainer review required (CLAUDE.md). This
+ * exemption is part of the Task 7 MCP-inbound-auth wiring, one of this
+ * plan's flagged PROPOSED/interim design choices awaiting maintainer
+ * sign-off (specs/phase-2-contracts.md §5; this plan's Global Constraints).
+ */
 function isPublicPath(pathname: string): boolean {
-  return pathname === "/healthz" || pathname.startsWith("/auth/");
+  return pathname === "/healthz" || pathname.startsWith("/auth/") || pathname === "/mcp";
 }
 
 function wantsHtml(request: FastifyRequest): boolean {

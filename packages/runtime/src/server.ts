@@ -14,8 +14,8 @@ import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
 import type { AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
-import { createMcpClient, type McpClient } from "@openrupiv/mcp";
-import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
+import { createMcpClient, registerMcpServer, type McpClient } from "@openrupiv/mcp";
+import { createPolicyEngine, type PolicyEngine, type PolicySubject } from "@openrupiv/policy";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerAdminAuditRoutes } from "./admin";
@@ -28,8 +28,10 @@ import { createPgDb, type Db } from "./db";
 import { registerEntityRoutes } from "./entities";
 import { RuntimeError } from "./errors";
 import { createLogger, type Logger } from "./logger";
+import { workflowInstanceStatusCapability } from "./mcp-capabilities";
 import { applyMigrations, ensureInfraTables } from "./migrate";
 import { registerPages } from "./pages";
+import { isSessionData, verifyPayload, type SessionData } from "./session";
 import { registerWorkflowRoutes } from "./workflows";
 
 /**
@@ -224,6 +226,20 @@ export async function createServer(
       appRoles: spec.app.roles ?? [],
     });
   }
+  registerMcpServer(app, {
+    capabilities: [workflowInstanceStatusCapability(spec, db)],
+    policy: policyEngine,
+    audit: auditStore,
+    // Interim, PROPOSED (flagged for maintainer sign-off, see this plan's
+    // header): verify the bearer as the platform's own signed session
+    // token, reusing the already-reviewed session.ts verification path,
+    // rather than validating an arbitrary third-party OIDC access token.
+    async verifyToken(bearer: string): Promise<PolicySubject | null> {
+      const verified = verifyPayload<SessionData>(bearer, config.sessionSecret, "session");
+      if (!verified.ok || !isSessionData(verified.payload)) return null;
+      return { id: verified.payload.sub, roles: verified.payload.roles };
+    },
+  });
   registerPages(app, spec, db, logger);
 
   // Structured request log. Never the query string (OAuth codes/states),
