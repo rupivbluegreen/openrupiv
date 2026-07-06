@@ -18,7 +18,7 @@ import { renderAppPackageJson, SERVER_ENTRY } from "./templates";
 import type { CompiledFile, CompileResult, CompilerError } from "./types";
 
 /** Spec sections whose shape is reserved but whose behavior v0 cannot project. */
-const UNSUPPORTED_SECTIONS = ["policies", "agents", "evidence"] as const;
+const UNSUPPORTED_SECTIONS = ["policies", "evidence"] as const;
 
 /**
  * Compile an already-validated spec (callers run `validateSpec` first)
