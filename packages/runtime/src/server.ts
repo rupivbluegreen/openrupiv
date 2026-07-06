@@ -78,9 +78,29 @@ export async function loadAppDir(dir: string): Promise<AppSpec> {
  * does not have a `servers` array.
  */
 async function loadMcpServersConfig(path: string): Promise<{ servers: import("@openrupiv/mcp").McpServerEntry[] }> {
-  const raw = await readFile(path, "utf8");
-  const parsed = JSON.parse(raw) as { servers?: unknown };
-  if (!parsed || !Array.isArray(parsed.servers)) {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new RuntimeError(
+      "ERR_CONFIG",
+      `MCP_SERVERS_CONFIG at ${path} could not be read: ${message}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new RuntimeError(
+      "ERR_CONFIG",
+      `MCP_SERVERS_CONFIG at ${path} is not valid JSON: ${message}`,
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { servers?: unknown }).servers)) {
     throw new RuntimeError("ERR_CONFIG", `MCP_SERVERS_CONFIG at ${path} must be a JSON object with a "servers" array`);
   }
   return parsed as { servers: import("@openrupiv/mcp").McpServerEntry[] };
