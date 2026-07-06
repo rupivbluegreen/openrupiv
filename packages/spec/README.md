@@ -30,6 +30,18 @@ runtime, pages) is a deterministic projection of it.
 | `workflows` (state machines, role/predicate guards, n-eyes approvals with `count >= 2`) | supported |
 | `policies`, `agents`, `evidence` | shape reserved — validated here, **rejected by the v0 compiler** with a typed error |
 
+### Spec version 0.2 — `agents`
+
+`specVersion: "0.2"` unlocks the `agents` section: governed agent task
+definitions (`name`, `description?`, `tools?: string[]`, `proposes?:
+{workflow, transition}[]`). A non-empty `agents` array under `specVersion:
+"0.1"` is a validation error (`ERR_AGENTS_REQUIRE_V0_2`). `proposes` entries
+must reference a real workflow + transition, and that transition must carry
+an `approval` rule — agents may only ever propose human-gated transitions,
+never fire ungated ones (`ERR_AGENT_PROPOSAL_UNGATED`). `policies` and
+`evidence` remain reserved-but-rejected at both spec versions; see
+`specs/phase-2-contracts.md` §4.
+
 ## Usage
 
 ```ts
