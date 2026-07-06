@@ -108,9 +108,15 @@ importers:
       '@fastify/formbody':
         specifier: ^8.0.2
         version: 8.0.2
+      '@openrupiv/agents':
+        specifier: workspace:*
+        version: link:../agents
       '@openrupiv/audit':
         specifier: workspace:*
         version: link:../audit
+      '@openrupiv/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@openrupiv/policy':
         specifier: workspace:*
         version: link:../policy
