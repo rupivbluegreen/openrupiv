@@ -8,7 +8,10 @@ SemVer once releases begin.
 ## [Unreleased]
 
 ### Phase 2 — Agents + policy + audit (in progress)
-- (nothing merged yet)
+- **`@openrupiv/audit`** — hash-chained, tamper-evident, append-only audit
+  log: pure verifiable chain (every tamper mode tested), Postgres
+  append-only store with chain-tail locking, SIEM exporters (JSONL/OTLP/
+  syslog), defense-in-depth secret scrubbing. Runtime wiring next.
 
 ## Phase 1 — Core — 2026-07-06
 

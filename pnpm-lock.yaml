@@ -72,6 +72,9 @@ importers:
       '@fastify/formbody':
         specifier: ^8.0.2
         version: 8.0.2
+      '@openrupiv/audit':
+        specifier: workspace:*
+        version: link:../audit
       '@openrupiv/spec':
         specifier: workspace:*
         version: link:../spec

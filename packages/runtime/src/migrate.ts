@@ -13,6 +13,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { AUDIT_LOG_DDL } from "@openrupiv/audit";
 import type { Db, Queryable } from "./db";
 import { RuntimeError } from "./errors";
 import type { Logger } from "./logger";
@@ -32,6 +33,8 @@ export const INFRA_STATEMENTS: readonly string[] = [
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (entity_table, record_id, transition, approver_sub)
 )`,
+  // Hash-chained tamper-evident audit log (@openrupiv/audit).
+  AUDIT_LOG_DDL,
 ];
 
 /** Create the runtime's own tables. Safe to run on every startup. */

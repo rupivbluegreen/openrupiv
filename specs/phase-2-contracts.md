@@ -90,6 +90,20 @@ export function toJsonl(records: AuditRecord[]): string;           // one JSON o
 
 ## 2. Runtime wiring (`@openrupiv/runtime`)
 
+> **Status:** the audit table is provisioned (`AUDIT_LOG_DDL` added to
+> `INFRA_STATEMENTS`, applied at startup) and `appendInTransaction(tx, input)`
+> exists for same-transaction appends. The event-append wiring below is the
+> next step — deliberately NOT done in the same session as the Phase 1
+> security review, since it edits the human-only-review files
+> (`workflows.ts`, `server.ts`, `auth.ts`) and should get a fresh, careful
+> pass. Committing events use `appendInTransaction(tx, …)` inside the existing
+> workflow transaction (atomic with the side effect); rejection events that
+> roll back (`workflow.duplicate_approver`, `workflow.state_write_rejected`)
+> and non-transactional auth events use a separate `createAuditStore(pool)`
+> connection so they persist independently. The `/admin/audit` read/verify
+> route can query the table directly and fold with `verifyChain`.
+
+
 - `createServer`/`serveAppDir` gain an optional `auditStore` dep (default:
   `createAuditStore(db)`); when present, these events append to it in the
   SAME transaction as their side effect where one exists (workflow

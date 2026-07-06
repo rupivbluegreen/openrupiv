@@ -22,7 +22,10 @@ export {
 } from "./chain";
 export { toJsonl, toOtlpLogRecords, toSyslog } from "./export";
 export {
+  appendInTransaction,
   createAuditStore,
+  rowToRecord,
+  type AppendOptions,
   type AuditStore,
   type AuditStoreOptions,
   type Pool,

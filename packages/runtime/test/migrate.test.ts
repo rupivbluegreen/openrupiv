@@ -23,6 +23,7 @@ describe("ensureInfraTables", () => {
     expect(executed.some((s) => s.startsWith("CREATE EXTENSION IF NOT EXISTS pgcrypto"))).toBe(true);
     expect(executed.some((s) => s.includes("CREATE TABLE IF NOT EXISTS _migrations"))).toBe(true);
     expect(executed.some((s) => s.includes("CREATE TABLE IF NOT EXISTS workflow_approvals"))).toBe(true);
+    expect(executed.some((s) => s.includes("CREATE TABLE IF NOT EXISTS audit_log"))).toBe(true);
   });
 
   it("declares the n-eyes UNIQUE constraint exactly as contracted", () => {

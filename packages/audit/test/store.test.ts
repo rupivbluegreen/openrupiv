@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAuditStore, verifyChain } from "../src/index";
+import { appendInTransaction, createAuditStore, verifyChain } from "../src/index";
 import type { AuditRecord } from "../src/index";
 import type { Pool, PoolClient } from "../src/index";
 
@@ -193,5 +193,29 @@ describe("createAuditStore", () => {
     });
     expect(rec.attributes?.["authorization"]).toBe("[redacted]");
     expect(onScrub).toHaveBeenCalledWith("agent.tool_call", ["authorization"]);
+  });
+});
+
+describe("appendInTransaction (same-transaction append)", () => {
+  it("appends within a caller-owned transaction, chaining onto existing records", async () => {
+    t = 0;
+    const pg = new FakePg();
+    const store = createAuditStore(pg, { clock });
+    await store.append({ event: "seed", actor: "sys", actorType: "system" });
+
+    // Simulate the runtime's db.transaction(tx => ...) using a pool client.
+    const client = await pg.connect();
+    await client.query("BEGIN");
+    const rec = await appendInTransaction(
+      client,
+      { event: "workflow.transitioned", actor: "u1", actorType: "human", subject: "x" },
+      { clock },
+    );
+    await client.query("COMMIT");
+    client.release();
+
+    expect(rec.seq).toBe(2);
+    expect(rec.prevHash).toBe(pg.records()[0]!.hash);
+    expect(verifyChain(pg.records())).toEqual({ ok: true, count: 2 });
   });
 });

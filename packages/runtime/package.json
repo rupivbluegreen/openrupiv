@@ -14,6 +14,7 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/formbody": "^8.0.2",
+    "@openrupiv/audit": "workspace:*",
     "@openrupiv/spec": "workspace:*",
     "fastify": "^5.10.0",
     "openid-client": "^6.8.4",
