@@ -98,6 +98,19 @@ describe("configFromEnv", () => {
       "ERR_CONFIG",
     );
   });
+
+  it("mcpServersConfigPath is undefined when MCP_SERVERS_CONFIG is unset", () => {
+    const config = configFromEnv(VALID_ENV);
+    expect(config.mcpServersConfigPath).toBeUndefined();
+  });
+
+  it("mcpServersConfigPath carries the env value through untouched", () => {
+    const config = configFromEnv({
+      ...VALID_ENV,
+      MCP_SERVERS_CONFIG: "/etc/openrupiv/mcp-servers.json",
+    });
+    expect(config.mcpServersConfigPath).toBe("/etc/openrupiv/mcp-servers.json");
+  });
 });
 
 describe("dev credential refusal (ADR-0002)", () => {

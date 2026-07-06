@@ -14,6 +14,7 @@ import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
 import type { AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
+import { createMcpClient, type McpClient } from "@openrupiv/mcp";
 import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -71,6 +72,20 @@ export async function loadAppDir(dir: string): Promise<AppSpec> {
   return result.spec;
 }
 
+/**
+ * Load an MCP client config (@openrupiv/mcp) from a JSON file at `path`.
+ * Throws ERR_CONFIG if the file is missing/unreadable, not valid JSON, or
+ * does not have a `servers` array.
+ */
+async function loadMcpServersConfig(path: string): Promise<{ servers: import("@openrupiv/mcp").McpServerEntry[] }> {
+  const raw = await readFile(path, "utf8");
+  const parsed = JSON.parse(raw) as { servers?: unknown };
+  if (!parsed || !Array.isArray(parsed.servers)) {
+    throw new RuntimeError("ERR_CONFIG", `MCP_SERVERS_CONFIG at ${path} must be a JSON object with a "servers" array`);
+  }
+  return parsed as { servers: import("@openrupiv/mcp").McpServerEntry[] };
+}
+
 /** Injection seams for tests (fake Db, offline OIDC, capturing logger). */
 export interface ServerDeps {
   db?: Db;
@@ -88,6 +103,8 @@ export interface ServerDeps {
    * production default to fall back to — never stub the sandbox boundary).
    */
   agents?: { runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry };
+  /** MCP client (consumes external MCP servers as connectors). Defaults to one built from config.mcpServersConfigPath (inert if unset). */
+  mcpClient?: McpClient;
 }
 
 /** Build the Fastify server (exported for tests). Does not listen. */
@@ -105,6 +122,12 @@ export async function createServer(
   const ownsDb = deps.db === undefined;
   const auditStore = deps.auditStore ?? createDbAuditStore(db, logger);
   const policyEngine = deps.policyEngine ?? (await createPolicyEngine());
+  const mcpClient =
+    deps.mcpClient ??
+    (await createMcpClient(
+      config.mcpServersConfigPath ? await loadMcpServersConfig(config.mcpServersConfigPath) : { servers: [] },
+      { policy: policyEngine, audit: auditStore },
+    ));
 
   const app = Fastify({ logger: false });
 
@@ -206,6 +229,12 @@ export async function createServer(
       await db.end();
     });
   }
+
+  // The MCP client is always either constructed here or injected by a test —
+  // unlike `db`, there is no "caller owns it" case to guard against.
+  app.addHook("onClose", async () => {
+    await mcpClient.close();
+  });
 
   return app;
 }
