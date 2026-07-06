@@ -167,6 +167,19 @@ hand an SDK transport instance to `Client.connect()` is the documented,
 narrowly-scoped workaround; see the comment above `pinProtocolVersion` in
 `src/client.ts`.
 
+**`tools/list` is audited, but as one summary record, not one per
+capability.** Added during implementation review (2026-07-06). The
+per-capability policy checks that decide visibility are NOT individually
+audited as `mcp.serve_call`/`mcp.serve_result` — those events model an
+actual dispatch (`tools/call`) — but `handleToolsList` appends one
+`mcp.serve_list` record per call (`totalCapabilities`, `visibleCount`, and
+the visible capability names), best-effort so a transient audit-store
+failure doesn't block basic capability discovery. This closes the gap
+between "every decision (allow and deny) is audited" (the project's
+audit-integrity posture elsewhere: `workflows.ts`, `@openrupiv/agents`) and
+a `tools/list` poll that would otherwise leave zero trace of what a subject
+could see.
+
 ## What this package does NOT do
 
 This is the **generic** client + server mechanism only. It implements zero

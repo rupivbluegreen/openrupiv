@@ -228,6 +228,19 @@ export interface AgentContext {
   propose(
     p: Omit<AgentProposal, "id" | "agentId" | "createdAt">,
   ): Promise<AgentProposal>;
+  /**
+   * Marks the end of this task run. Emits `agent.task_finished` exactly
+   * once, fail-closed (throws if the audit append fails) — a one-event-
+   * per-run guarantee regardless of outcome (success, error, or a run that
+   * never proposed anything). The orchestrator driving `contextFor` + a
+   * sequence of `callTool`/`propose` calls MUST call this exactly once when
+   * its own procedure completes; it does not run automatically. Added
+   * during @openrupiv/agents implementation review (2026-07-06) to close a
+   * gap in the original draft, which inferred `task_finished` from a
+   * successful `propose()` call only — see @openrupiv/agents/README.md
+   * "Lifecycle" for the full history.
+   */
+  finish(outcome: { reason: string; detail?: Record<string, unknown> }): Promise<void>;
 }
 
 export interface RegisteredTool {
@@ -257,6 +270,8 @@ export function createAgentRuntime(
     sandbox: ToolSandbox;
     tools: RegisteredTool[];
     clock?: () => string;
+    /** Absolute host path prefix for per-call workspace dirs. Default: `/workspaces`. */
+    workspaceRoot?: string;
   },
 ): AgentRuntime;
 
@@ -489,7 +504,15 @@ export function registerMcpServer(
   `mcp.serve_result` AFTER. v0.2 accepts user-delegated tokens only: actor
   = token sub, actorType `"human"`, attributes `{ channel: "mcp" }`.
 - **Audit events owned here:** `mcp.tool_call`, `mcp.tool_result`,
-  `mcp.serve_call`, `mcp.serve_result`, `mcp.serve_rejected`.
+  `mcp.serve_call`, `mcp.serve_result`, `mcp.serve_rejected`, `mcp.serve_list`.
+  `mcp.serve_list` records one summary event per `tools/list` call (added
+  during @openrupiv/mcp implementation review, 2026-07-06) — the total
+  number of registered capabilities, how many were visible to the subject
+  after per-capability policy filtering, and their names — rather than one
+  record per capability, to give auditability over "what could this subject
+  see" without per-capability audit-log noise on every list poll. Best-effort
+  (a failure here does not block the response — this is a read-only listing,
+  not a state-changing dispatch).
 - Unit tests run against an in-process fake MCP server (no network); the
   live-interop path (consume ≥ 1 real external server — acceptance
   criterion 6) is exercised in the Compose e2e stage.

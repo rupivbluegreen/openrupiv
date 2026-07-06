@@ -83,6 +83,17 @@ export interface AgentContext {
   propose(
     p: Omit<AgentProposal, "id" | "agentId" | "createdAt">,
   ): Promise<AgentProposal>;
+  /**
+   * Marks the end of this task run. Emits `agent.task_finished` exactly
+   * once, fail-closed (throws if the audit append fails) -- callers get a
+   * one-event-per-run guarantee regardless of how the run concluded
+   * (success, error, or a run that never proposed anything), unlike
+   * inferring completion from any one method's outcome. The orchestrator
+   * driving `contextFor` + a sequence of `callTool`/`propose` calls MUST
+   * call this exactly once when its own procedure completes, whatever the
+   * outcome; it does not run automatically.
+   */
+  finish(outcome: { reason: string; detail?: Record<string, unknown> }): Promise<void>;
 }
 
 export interface RegisteredTool {

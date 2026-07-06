@@ -106,7 +106,7 @@ describe("registerMcpServer", () => {
     });
   });
 
-  it("tools/list only returns capabilities the subject's policy check allows", async () => {
+  it("tools/list only returns capabilities the subject's policy check allows, and audits one mcp.serve_list summary record", async () => {
     const audit = createFakeAuditStore();
     const readCap = readOnlyCapability({ name: "read-cap", allowedRoles: [] });
     const adminCap = readOnlyCapability({ name: "admin-cap", allowedRoles: ["admin"] });
@@ -118,8 +118,28 @@ describe("registerMcpServer", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.result.tools.map((t: { name: string }) => t.name)).toEqual(["read-cap"]);
-    // tools/list itself is not audited as mcp.serve_call/mcp.serve_result (see server.ts doc comment).
-    expect(audit.records).toHaveLength(0);
+
+    // One summary record, not one per capability (no per-capability
+    // mcp.serve_call/mcp.serve_result noise -- those model actual dispatch).
+    expect(audit.records).toHaveLength(1);
+    expect(audit.records[0]).toMatchObject({
+      event: "mcp.serve_list",
+      actor: "u1",
+      attributes: { totalCapabilities: 2, visibleCount: 1, visible: ["read-cap"] },
+    });
+  });
+
+  it("tools/list audit append failure does not block the response (best-effort)", async () => {
+    const base = createFakeAuditStore();
+    const audit = withFailingAppend(base, () => true);
+    registerMcpServer(app, { capabilities: [readOnlyCapability()], policy: allowAllPolicyEngine(), audit, verifyToken });
+    await app.ready();
+
+    const res = await postMcp(app, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { bearer: "valid-token" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.result.tools).toHaveLength(1);
+    expect(base.records).toHaveLength(0);
   });
 
   it("full inbound tools/call round trip: mcp.serve_call then mcp.serve_result, in order, digests not raw values", async () => {

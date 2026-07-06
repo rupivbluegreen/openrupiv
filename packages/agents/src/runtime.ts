@@ -13,11 +13,16 @@
  *   6. audit `agent.tool_result` AFTER (best-effort -- see README.md
  *      "Best-effort after-audit"; only step 4's BEFORE append is fail-closed)
  *
- * See README.md for the design notes on three places this file had to
- * interpret an underspecified corner of the §4 contract: the
- * `agent.task_started`/`agent.task_finished` lifecycle boundary, the fixed
- * `SandboxLimits`/`workspaceDir` defaults (createAgentRuntime's `deps` has
- * no channel to override them), and the `AppSpec.agents` v0.1/v0.2 type gap.
+ * Lifecycle: `agent.task_started` fires fire-and-forget from `contextFor`
+ * (synchronous, can't fail closed); `agent.task_finished` fires from the
+ * explicit, fail-closed `AgentContext.finish()` -- exactly one call per task
+ * run, regardless of outcome (see types.ts's doc comment on `finish`).
+ *
+ * See README.md for the design notes on two remaining places this file had
+ * to interpret an underspecified corner of the §4 contract: the fixed
+ * `SandboxLimits` default (createAgentRuntime's `deps` has no channel to
+ * override it; `workspaceRoot` IS overridable, see `CreateAgentRuntimeDeps`),
+ * and the `AppSpec.agents` v0.1/v0.2 type gap.
  */
 
 import { randomUUID } from "node:crypto";
@@ -69,8 +74,10 @@ export const DEFAULT_SANDBOX_LIMITS: SandboxLimits = {
  * the actual host directory itself. This package never touches the
  * filesystem for it -- it only needs to hand the sandbox a fresh,
  * per-call identifier in the shape the contract's field name promises.
+ * Configurable via `CreateAgentRuntimeDeps.workspaceRoot`; this is only the
+ * default when a deployment doesn't override it.
  */
-const WORKSPACE_ROOT = "/workspaces";
+const DEFAULT_WORKSPACE_ROOT = "/workspaces";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -121,6 +128,11 @@ export interface CreateAgentRuntimeDeps {
   sandbox: ToolSandbox;
   tools: RegisteredTool[];
   clock?: () => string;
+  /**
+   * Absolute host path prefix for per-call workspace directories (see
+   * `DEFAULT_WORKSPACE_ROOT`'s doc comment). Defaults to `/workspaces`.
+   */
+  workspaceRoot?: string;
 }
 
 export function createAgentRuntime(
@@ -128,6 +140,7 @@ export function createAgentRuntime(
   deps: CreateAgentRuntimeDeps,
 ): AgentRuntime {
   const clock = deps.clock ?? (() => new Date().toISOString());
+  const workspaceRoot = deps.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
   const toolsByName = new Map(deps.tools.map((t) => [t.name, t]));
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   const validators = new Map<string, ValidateFunction>();
@@ -235,7 +248,7 @@ export function createAgentRuntime(
 
     // 5. sandbox.execute -- workspaceDir/limits are this package's only
     // contribution to the sandbox boundary; see README.md.
-    const workspaceDir = path.posix.join(WORKSPACE_ROOT, randomUUID());
+    const workspaceDir = path.posix.join(workspaceRoot, randomUUID());
     const result = await deps.sandbox.execute({
       tool,
       input: req.input,
@@ -318,23 +331,30 @@ export function createAgentRuntime(
       return created;
     });
 
-    // Lifecycle: see README.md "Lifecycle boundaries" -- `propose()` is the
-    // one clearly-terminal signal `AgentContext` exposes, so a successful
-    // proposal also emits `agent.task_finished`. Awaited (unlike
-    // `task_started` in `contextFor`, which is synchronous) but best-effort:
-    // a failure here must not undo the already-committed proposal.
-    try {
-      await deps.audit.append({
-        event: "agent.task_finished",
-        actor: identity.id,
-        actorType: "agent",
-        attributes: { task: task.name, reason: "proposal_submitted", proposalId: proposal.id },
-      });
-    } catch {
-      // best-effort; see README.md.
-    }
-
     return proposal;
+  }
+
+  /**
+   * Marks the end of a task run -- see README.md "Lifecycle boundaries".
+   * Unlike `agent.task_started` (fire-and-forget from the synchronous
+   * `contextFor`) and the old propose()-inferred approach this replaces,
+   * `finish()` is an explicit, awaited, FAIL-CLOSED contract method: the
+   * orchestrator driving a task run calls it exactly once when done,
+   * regardless of outcome, and a failed append surfaces as a thrown error
+   * rather than being silently swallowed -- callers that need "one
+   * task_finished per run" get a real guarantee, not an inference.
+   */
+  async function finish(
+    identity: AgentIdentity,
+    task: AgentTaskDef,
+    outcome: { reason: string; detail?: Record<string, unknown> },
+  ): Promise<void> {
+    await deps.audit.append({
+      event: "agent.task_finished",
+      actor: identity.id,
+      actorType: "agent",
+      attributes: { task: task.name, reason: outcome.reason, detail: outcome.detail },
+    });
   }
 
   function contextFor(taskName: string): AgentContext {
@@ -364,6 +384,7 @@ export function createAgentRuntime(
       task,
       callTool: (req) => callTool(identity, task, req),
       propose: (p) => propose(identity, task, p),
+      finish: (outcome) => finish(identity, task, outcome),
     };
   }
 

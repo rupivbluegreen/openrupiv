@@ -185,6 +185,28 @@ describe("callTool enforcement order", () => {
     expect(relevant[1]?.attributes?.["durationMs"]).toBe(12);
   });
 
+  it("honors a configured workspaceRoot instead of the /workspaces default", async () => {
+    const task: AgentTaskDef = { name: "onboard-vendor", tools: ["echo"] };
+    const spec = buildSpec([task]);
+    const sandbox = new FakeSandbox();
+    sandbox.setDefaultResult({ ok: true, output: {}, durationMs: 1 });
+    const runtime = createAgentRuntime(spec, {
+      db: new FakeDb(),
+      policy: new FakePolicy({ allow: () => true }),
+      audit: new FakeAuditStore(),
+      sandbox,
+      tools: [ECHO_TOOL],
+      workspaceRoot: "/custom-workspace-root",
+    });
+    const ctx = runtime.contextFor("onboard-vendor");
+
+    await ctx.callTool({ tool: "echo", input: { message: "hi" } });
+
+    expect(sandbox.calls[0]?.workspaceDir).toMatch(
+      /^\/custom-workspace-root\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
   it("maps sandbox violation/limit/tool_error results to the matching ToolCallResult codes, and audits the outcome", async () => {
     const { runtime, audit, sandbox } = setup({ allow: () => true });
     const ctx = runtime.contextFor("onboard-vendor");
@@ -230,7 +252,7 @@ describe("callTool enforcement order", () => {
 });
 
 describe("propose()", () => {
-  it("writes agent_proposals + agent.transition_proposed atomically (same transaction) and emits agent.task_finished", async () => {
+  it("writes agent_proposals + agent.transition_proposed atomically (same transaction)", async () => {
     const { runtime, db, audit } = setup({ allow: () => true });
     const ctx = runtime.contextFor("onboard-vendor");
 
@@ -250,9 +272,9 @@ describe("propose()", () => {
     expect(proposedEvents).toHaveLength(1);
     expect(proposedEvents[0]).toMatchObject({ actor: ctx.identity.id, actor_type: "agent" });
 
-    const finished = audit.records.filter((r) => r.event === "agent.task_finished");
-    expect(finished).toHaveLength(1);
-    expect(finished[0]?.attributes?.["proposalId"]).toBe(proposal.id);
+    // propose() no longer infers task completion -- finish() (tested below)
+    // is the sole, explicit source of agent.task_finished.
+    expect(audit.records.filter((r) => r.event === "agent.task_finished")).toHaveLength(0);
   });
 
   it("rolls back BOTH the proposal insert and the audit append if the audit append fails (atomic, fail-closed)", async () => {
@@ -289,6 +311,51 @@ describe("propose()", () => {
     for (const stmt of db.statements) {
       expect(stmt.text).not.toMatch(/workflow_approvals/);
     }
+  });
+});
+
+describe("finish()", () => {
+  it("emits exactly one agent.task_finished with the given reason, independent of propose()", async () => {
+    const { runtime, audit } = setup({ allow: () => true });
+    const ctx = runtime.contextFor("onboard-vendor");
+
+    await ctx.finish({ reason: "no_action_needed" });
+
+    const finished = audit.records.filter((r) => r.event === "agent.task_finished");
+    expect(finished).toHaveLength(1);
+    expect(finished[0]).toMatchObject({
+      actor: ctx.identity.id,
+      actorType: "agent",
+      attributes: { task: "onboard-vendor", reason: "no_action_needed" },
+    });
+  });
+
+  it("carries optional detail through to the audit attributes", async () => {
+    const { runtime, audit } = setup({ allow: () => true });
+    const ctx = runtime.contextFor("onboard-vendor");
+
+    await ctx.finish({ reason: "error", detail: { errorCode: "ERR_TOOL_FAILED" } });
+
+    const finished = audit.records.filter((r) => r.event === "agent.task_finished");
+    expect(finished[0]?.attributes?.["detail"]).toEqual({ errorCode: "ERR_TOOL_FAILED" });
+  });
+
+  it("is fail-closed: a failing audit append throws, so callers know the guarantee wasn't met", async () => {
+    const { runtime, audit } = setup({ allow: () => true });
+    audit.failNextAppend(/^agent\.task_finished$/);
+    const ctx = runtime.contextFor("onboard-vendor");
+
+    await expect(ctx.finish({ reason: "done" })).rejects.toThrow();
+  });
+
+  it("gives a one-event-per-run guarantee even for a run that never calls propose() or callTool", async () => {
+    const { runtime, audit } = setup({ allow: () => true });
+    const ctx = runtime.contextFor("onboard-vendor");
+
+    await ctx.finish({ reason: "read_only_run_completed" });
+
+    expect(audit.records.filter((r) => r.event === "agent.task_started")).toHaveLength(1);
+    expect(audit.records.filter((r) => r.event === "agent.task_finished")).toHaveLength(1);
   });
 });
 

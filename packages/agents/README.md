@@ -41,6 +41,10 @@ capability surface handed to whatever drives a task run:
   (`appendInTransaction`), fail-closed and atomic. It never writes
   `workflow_approvals` and never changes entity state -- there is no code
   path to either (see "propose() cannot reach workflow state" below).
+- `finish(outcome)` marks the end of the task run: appends
+  `agent.task_finished` with `outcome.reason` (and optional `outcome.detail`)
+  -- **fail-closed**, and the orchestrator's responsibility to call exactly
+  once regardless of how the run concluded (see "Lifecycle" below).
 
 `runtime.listProposals({ workflow?, recordId? })` reads `agent_proposals`,
 optionally filtered.
@@ -78,31 +82,26 @@ This package defines its **own** `Db`/`Queryable` (`src/types.ts`):
   we don't need) satisfies our narrower interface structurally, with zero
   import -- exactly the "structural seam" the contract asks for.
 
-### Sandbox limits and `workspaceDir` are fixed in this package
+### Sandbox limits are fixed; `workspaceRoot` is configurable
 
-`createAgentRuntime`'s `deps`, as literally specified, has no field to
-inject `SandboxLimits` or a workspace root -- only `sandbox: ToolSandbox`.
-Per ADR-0007 (`docs/adr/0007-agent-sandbox-bubblewrap-sidecar.md`, the
-sandbox's own design document):
+`createAgentRuntime`'s `deps`, as literally specified in the §4 contract,
+has no field to inject `SandboxLimits` -- only `sandbox: ToolSandbox`. Per
+ADR-0007 (`docs/adr/0007-agent-sandbox-bubblewrap-sidecar.md`, the sandbox's
+own design document), **`DEFAULT_SANDBOX_LIMITS`** reproduces ADR-0007's
+fixed defaults exactly (`wallClockMs: 30_000`, `memoryBytes: 268_435_456`
+[256 MiB], `maxOutputBytes: 1_048_576` [1 MiB]) and is used for every call.
+The §4 contract only requires *some* value be populated; the concrete
+numbers are ADR-0007's call, not this package's, and are reproduced here
+(not reinvented) because there is currently no channel to override them.
 
-- **`DEFAULT_SANDBOX_LIMITS`** reproduces ADR-0007's fixed defaults exactly
-  (`wallClockMs: 30_000`, `memoryBytes: 268_435_456` [256 MiB],
-  `maxOutputBytes: 1_048_576` [1 MiB]) and is used for every call. The §4
-  contract only requires *some* value be populated; the concrete numbers are
-  ADR-0007's call, not this package's, and are reproduced here (not
-  reinvented) because there is currently no channel to override them.
-- **`workspaceDir`** is `/workspaces/<uuid>` -- a fresh UUID per call, with
-  no real filesystem I/O in this package. ADR-0007 ("`runId` handling") is
-  explicit that the real sandbox (`createSidecarSandbox`) treats
-  `workspaceDir` as opaque beyond its final path segment: it extracts and
-  re-validates that segment as a `runId` and creates/deletes the actual host
-  directory itself. This package only needs to hand the sandbox a
-  per-call identifier in the shape the field name promises -- it never
-  creates, reads, or deletes a directory itself.
-
-If a later stage wants either of these configurable, that's an additive
-change to `CreateAgentRuntimeDeps` (exported from `src/runtime.ts`), not a
-contract change to the frozen `createAgentRuntime` signature itself.
+**`workspaceDir`** is `<workspaceRoot>/<uuid>` -- a fresh UUID per call, with
+no real filesystem I/O in this package (ADR-0007's "`runId` handling" is
+explicit that the real sandbox extracts and re-validates the final path
+segment as a `runId` and owns creating/deleting the actual host directory
+itself). Unlike the sandbox limits, `workspaceRoot` IS an additive,
+non-breaking extension to `CreateAgentRuntimeDeps` -- `deps.workspaceRoot?:
+string`, defaulting to `/workspaces` -- since a deployment may need a
+different host mount point without this package needing to know why.
 
 ### Best-effort after-audit
 
@@ -113,42 +112,34 @@ real `ToolCallResult` from the sandbox. This is deliberate, not an oversight
 NOT executed") names only the BEFORE append in step 4. By step 6 the tool
 has already run; there is no side effect left to roll back, and no
 `AgentErrorCode` exists for "the tool succeeded but we couldn't log that it
-did." The same reasoning applies to `agent.task_finished` in `propose()`
-(see below) -- it's `await`ed (unlike `task_started`, which can't be; see
-next section) but a failure there must not undo the already-committed
-proposal.
+did."
 
-### Lifecycle boundaries: `agent.task_started` / `agent.task_finished`
+### Lifecycle: `agent.task_started` / `agent.task_finished`
 
-The §4 contract lists both as audit events "owned by this package" but
-`AgentContext` has no explicit "end of run" method, and `contextFor` itself
-is **synchronous** (`contextFor(taskName): AgentContext`, not
-`Promise<AgentContext>`). This package's interpretation, flagged here for
-the runtime-wiring stage to confirm or revise once a real task-driving
-orchestrator exists (open product question #1 in
-`specs/phase-2-contracts.md`'s resolved-questions section: v0.2 has no
-scheduler/loop of its own, so nothing outside this package currently signals
-"the run is done"):
+The §4 contract lists both as audit events "owned by this package." Original
+draft of this package inferred `task_finished` from a successful
+`propose()` call, which left a real gap: any task run that never proposed
+(a pure read/tool-invocation task, or one that errored first) got
+`task_started` with no matching `task_finished` -- no one-event-per-run
+guarantee. Resolved by adding an explicit `finish()` method to
+`AgentContext` (a contract amendment, reflected in
+`specs/phase-2-contracts.md` §4):
 
 - **`agent.task_started`** fires from `contextFor(taskName)` itself, one per
-  call. Because `contextFor` can't `await`, this is **fire-and-forget**
+  call. Because `contextFor` can't `await` (`contextFor(taskName):
+  AgentContext`, not `Promise<AgentContext>`), this is **fire-and-forget**
   (`.catch()`-swallowed) -- there is no way to fail closed here given the
   literal signature.
-- **`agent.task_finished`** fires from a **successful `propose()`** call,
-  after its transaction commits -- `propose()` is the one clearly-terminal
-  signal `AgentContext` exposes (an agent handing its output to a human).
-  It is `await`ed, unlike `task_started`, because `propose()` is genuinely
-  async and there's no interface constraint preventing it.
-
-**Known gap, flagged for the wiring stage:** a task run that never calls
-`propose()` -- a pure read/tool-invocation task, or one that errors before
-reaching a proposal -- gets `agent.task_started` but **no**
-`agent.task_finished` from this package in v0.2. If every run needs a
-`task_finished` regardless of outcome, the future orchestrator that drives
-`contextFor` + a sequence of `callTool`/`propose` calls (open question #1:
-"a fixed procedure," driven by code outside this package) is better
-positioned to emit that event itself once its own procedure completes, than
-this package is to infer "done" from `AgentContext`'s two methods.
+- **`agent.task_finished`** fires from the explicit `AgentContext.finish(outcome)`
+  method -- **fail-closed** (throws if the append fails, unlike every other
+  best-effort AFTER-event in this package) and decoupled from `propose()`
+  entirely. The orchestrator driving `contextFor` + a sequence of
+  `callTool`/`propose` calls (open question #1 in
+  `specs/phase-2-contracts.md`: "a fixed procedure," code outside this
+  package) calls `finish()` exactly once when its own procedure concludes,
+  passing whatever `reason` fits (success, error, no-op, etc.) -- giving
+  callers a real one-task_finished-per-run guarantee instead of an
+  inference tied to one particular method's success.
 
 ### Spec v0.1/v0.2 type gap
 

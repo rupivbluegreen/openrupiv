@@ -182,12 +182,14 @@ async function handleInitialize(
 /**
  * Returns only capabilities the authenticated subject would actually be
  * allowed to call — each capability's own policy check runs BEFORE it is
- * included, not just before the eventual `tools/call`. This filtering pass
- * is deliberately NOT itself audited as `mcp.serve_call`/`mcp.serve_result`:
- * those events model an actual dispatch (see `handleToolsCall`), and
- * auditing every capability on every `tools/list` poll would be audit-log
- * noise for a read-only listing operation, not a governed action in its own
- * right. (Flagged in the implementation report as a judgment call.)
+ * included, not just before the eventual `tools/call`. The per-capability
+ * policy checks themselves are NOT individually audited as
+ * `mcp.serve_call`/`mcp.serve_result` (those events model an actual
+ * dispatch, see `handleToolsCall`) — instead this appends ONE
+ * `mcp.serve_list` summary record per call (best-effort: a failure here
+ * does not block the response, matching the AFTER-audit posture used
+ * elsewhere in this package), so "what could this subject see" is still
+ * auditable without per-capability noise on every list poll.
  */
 async function handleToolsList(
   id: string | number | null,
@@ -207,6 +209,22 @@ async function handleToolsList(
       visible.push({ name: cap.name, description: cap.description, inputSchema: cap.inputSchema });
     }
   }
+
+  const result = await safeAudit(opts, {
+    event: "mcp.serve_list",
+    actor: subject.id,
+    actorType: "human",
+    attributes: {
+      channel: "mcp",
+      totalCapabilities: capsByName.size,
+      visibleCount: visible.length,
+      visible: visible.map((v) => v.name),
+    },
+  });
+  if (!result.ok) {
+    console.error(`@openrupiv/mcp: failed to append mcp.serve_list audit record: ${result.message}`);
+  }
+
   reply.code(200);
   return reply.send(jsonRpcResult(id, { tools: visible }));
 }
