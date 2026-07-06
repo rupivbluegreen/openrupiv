@@ -21,7 +21,7 @@ export const appSpecSchema = {
   additionalProperties: false,
   required: ["specVersion", "app", "entities"],
   properties: {
-    specVersion: { const: "0.1" },
+    specVersion: { enum: ["0.1", "0.2"] },
     app: { $ref: "#/$defs/app" },
     entities: {
       type: "array",
@@ -211,6 +211,25 @@ export const appSpecSchema = {
       properties: {
         name: { type: "string", pattern: PATTERN_KEBAB_NAME },
         description: { type: "string" },
+        tools: {
+          type: "array",
+          uniqueItems: true,
+          items: { type: "string", pattern: PATTERN_KEBAB_NAME },
+        },
+        proposes: {
+          type: "array",
+          minItems: 1,
+          items: { $ref: "#/$defs/agentProposalRef" },
+        },
+      },
+    },
+    agentProposalRef: {
+      type: "object",
+      additionalProperties: false,
+      required: ["workflow", "transition"],
+      properties: {
+        workflow: { type: "string", pattern: PATTERN_KEBAB_NAME },
+        transition: { type: "string", pattern: PATTERN_KEBAB_NAME },
       },
     },
     evidenceHook: {

@@ -7,6 +7,7 @@ import type {
   FieldDef,
   FieldPredicate,
   SPEC_VERSION,
+  SPEC_VERSION_0_2,
 } from "./types";
 
 export type ValidationResult =
@@ -40,14 +41,17 @@ export function validateSpec(input: unknown): ValidationResult {
   }
 
   const version = (input as Record<string, unknown>)["specVersion"];
-  if (version !== ("0.1" satisfies typeof SPEC_VERSION)) {
+  if (
+    version !== ("0.1" satisfies typeof SPEC_VERSION) &&
+    version !== ("0.2" satisfies typeof SPEC_VERSION_0_2)
+  ) {
     return {
       ok: false,
       errors: [
         {
           code: "ERR_SPEC_VERSION",
           path: "/specVersion",
-          message: `unsupported specVersion ${JSON.stringify(version)}; this validator supports "0.1"`,
+          message: `unsupported specVersion ${JSON.stringify(version)}; this validator supports "0.1" or "0.2"`,
         },
       ],
     };
@@ -314,6 +318,52 @@ export function validateSpec(input: unknown): ValidationResult {
         checkRoles(transition.approval.roles, `${tPath}/approval/roles`);
       }
     }
+  }
+
+  const agentNames = new Set<string>();
+  for (const [i, task] of (spec.agents ?? []).entries()) {
+    const path = `/agents/${i}`;
+    if (agentNames.has(task.name)) {
+      err("ERR_DUPLICATE_NAME", `${path}/name`, `duplicate agent task name ${JSON.stringify(task.name)}`);
+    }
+    agentNames.add(task.name);
+
+    for (const [j, ref] of (task.proposes ?? []).entries()) {
+      const refPath = `${path}/proposes/${j}`;
+      const workflow = (spec.workflows ?? []).find((w) => w.name === ref.workflow);
+      if (!workflow) {
+        err(
+          "ERR_UNKNOWN_WORKFLOW",
+          `${refPath}/workflow`,
+          `agent task ${JSON.stringify(task.name)} proposes an unknown workflow ${JSON.stringify(ref.workflow)}`,
+        );
+        continue;
+      }
+      const transition = workflow.transitions.find((t) => t.name === ref.transition);
+      if (!transition) {
+        err(
+          "ERR_UNKNOWN_TRANSITION",
+          `${refPath}/transition`,
+          `agent task ${JSON.stringify(task.name)} proposes unknown transition ${JSON.stringify(ref.transition)} in workflow ${JSON.stringify(ref.workflow)}`,
+        );
+        continue;
+      }
+      if (!transition.approval) {
+        err(
+          "ERR_AGENT_PROPOSAL_UNGATED",
+          refPath,
+          `agent task ${JSON.stringify(task.name)} proposes transition ${JSON.stringify(ref.transition)}, which has no approval rule; agents may only propose human-gated transitions`,
+        );
+      }
+    }
+  }
+
+  if ((spec.agents ?? []).length > 0 && spec.specVersion !== "0.2") {
+    err(
+      "ERR_AGENTS_REQUIRE_V0_2",
+      "/agents",
+      `non-empty agents array requires specVersion "0.2" (got ${JSON.stringify(spec.specVersion)})`,
+    );
   }
 
   if (errors.length > 0) return { ok: false, errors };

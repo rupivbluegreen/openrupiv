@@ -28,7 +28,15 @@ export type SpecErrorCode =
   /** Workflow initial/from/to not among the state field's values. */
   | "ERR_WORKFLOW_STATE"
   /** Role referenced but not declared in app.roles. */
-  | "ERR_UNKNOWN_ROLE";
+  | "ERR_UNKNOWN_ROLE"
+  /** Non-empty `agents` array declared under specVersion "0.1". */
+  | "ERR_AGENTS_REQUIRE_V0_2"
+  /** Agent task `proposes` references a workflow that does not exist. */
+  | "ERR_UNKNOWN_WORKFLOW"
+  /** Agent task `proposes` references a transition that does not exist in the workflow. */
+  | "ERR_UNKNOWN_TRANSITION"
+  /** Agent task `proposes` references a transition with no approval rule — agents may only propose human-gated transitions. */
+  | "ERR_AGENT_PROPOSAL_UNGATED";
 
 export interface SpecError {
   code: SpecErrorCode;
