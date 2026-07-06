@@ -1,0 +1,56 @@
+{
+  "prompt": "An expense report tool where a manager approval requires two distinct manager sign-offs (dual control), and add an automated agent task named expense-policy-check that reads a submitted report and proposes the approve transition when it looks within policy.",
+  "expected": {
+    "specVersion": "0.2",
+    "app": {
+      "name": "Expense Reports (Dual Control)",
+      "slug": "expense-reports-agent",
+      "version": "0.1.0",
+      "roles": ["employee", "manager"]
+    },
+    "entities": [
+      {
+        "name": "ExpenseReport",
+        "fields": [
+          { "name": "title", "type": "string", "required": true },
+          { "name": "amount", "type": "number", "required": true },
+          { "name": "receiptNote", "type": "text" },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["draft", "submitted", "approved", "rejected"],
+            "default": "draft"
+          }
+        ]
+      }
+    ],
+    "workflows": [
+      {
+        "name": "expense-approval",
+        "entity": "ExpenseReport",
+        "stateField": "status",
+        "initial": "draft",
+        "transitions": [
+          { "name": "submit", "from": "draft", "to": "submitted", "guard": { "roles": ["employee"] } },
+          {
+            "name": "approve",
+            "from": "submitted",
+            "to": "approved",
+            "guard": { "roles": ["manager"] },
+            "approval": { "count": 2, "roles": ["manager"] }
+          },
+          { "name": "reject", "from": "submitted", "to": "rejected", "guard": { "roles": ["manager"] } }
+        ]
+      }
+    ],
+    "agents": [
+      {
+        "name": "expense-policy-check",
+        "description": "Reads a submitted expense report and proposes approval when it looks within policy.",
+        "tools": ["read-expense-report"],
+        "proposes": [{ "workflow": "expense-approval", "transition": "approve" }]
+      }
+    ]
+  }
+}

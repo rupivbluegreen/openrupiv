@@ -122,5 +122,9 @@ describe("golden corpus", () => {
     it("includes a role-rich app (>= 4 roles)", () => {
       expect(specs.some((s) => (s.app.roles ?? []).length >= 4)).toBe(true);
     });
+
+    it("includes at least 2 apps declaring a v0.2 agents section", () => {
+      expect(specs.filter((s) => (s.agents ?? []).length > 0).length).toBeGreaterThanOrEqual(2);
+    });
   });
 });

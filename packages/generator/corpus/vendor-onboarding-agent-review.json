@@ -1,0 +1,69 @@
+{
+  "prompt": "A vendor onboarding tool, same as the standard 4-eyes vendor onboarding app, but add an automated agent task named vendor-risk-review that reads the vendor application and proposes the approve transition for a human to confirm.",
+  "expected": {
+    "specVersion": "0.2",
+    "app": {
+      "name": "Vendor Onboarding",
+      "slug": "vendor-onboarding-agent",
+      "description": "Approval workflow for onboarding new vendors with 4-eyes review and an automated risk-review agent.",
+      "version": "0.1.0",
+      "roles": ["requester", "reviewer", "compliance"]
+    },
+    "entities": [
+      {
+        "name": "Vendor",
+        "description": "A company we may do business with.",
+        "fields": [
+          { "name": "name", "type": "string", "required": true, "unique": true },
+          { "name": "contactEmail", "type": "string", "required": true },
+          { "name": "country", "type": "string" },
+          { "name": "riskTier", "type": "enum", "values": ["low", "medium", "high"], "default": "medium" }
+        ]
+      },
+      {
+        "name": "VendorApplication",
+        "description": "A request to onboard a vendor.",
+        "fields": [
+          { "name": "vendor", "type": "reference", "entity": "Vendor", "required": true },
+          { "name": "justification", "type": "text", "required": true },
+          { "name": "annualSpend", "type": "number" },
+          {
+            "name": "status",
+            "type": "enum",
+            "required": true,
+            "values": ["draft", "submitted", "in_review", "approved", "rejected"],
+            "default": "draft"
+          }
+        ]
+      }
+    ],
+    "workflows": [
+      {
+        "name": "vendor-approval",
+        "entity": "VendorApplication",
+        "stateField": "status",
+        "initial": "draft",
+        "transitions": [
+          { "name": "submit", "from": "draft", "to": "submitted", "guard": { "roles": ["requester"] } },
+          { "name": "start-review", "from": "submitted", "to": "in_review", "guard": { "roles": ["reviewer"] } },
+          {
+            "name": "approve",
+            "from": "in_review",
+            "to": "approved",
+            "guard": { "roles": ["reviewer", "compliance"] },
+            "approval": { "count": 2, "roles": ["reviewer", "compliance"] }
+          },
+          { "name": "reject", "from": "in_review", "to": "rejected", "guard": { "roles": ["reviewer", "compliance"] } }
+        ]
+      }
+    ],
+    "agents": [
+      {
+        "name": "vendor-risk-review",
+        "description": "Reads a submitted vendor application and proposes approval when risk looks acceptable.",
+        "tools": ["read-vendor-application"],
+        "proposes": [{ "workflow": "vendor-approval", "transition": "approve" }]
+      }
+    ]
+  }
+}
