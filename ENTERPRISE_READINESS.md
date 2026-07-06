@@ -7,13 +7,13 @@ table.** Statuses: ✅ shipped (enforced, logged, evidenced) · 🚧 in progress
 Rule: a control that doesn't enforce, log, and produce evidence doesn't ship —
 the dependent feature is gated instead. "Shipped" here means all three.
 
-_Last updated: 2026-07-06 (Phase 0)._
+_Last updated: 2026-07-06 (Phase 1 core landed; e2e-verified via `scripts/e2e-quickstart.sh`)._
 
 ## Identity & access
 
 | Requirement | Status |
 |---|---|
-| OIDC SSO | 📋 M2 |
+| OIDC SSO | ✅ runtime v0 — Authorization Code + PKCE via discovery, sessions, e2e-verified. Human maintainer review of the auth surface still pending |
 | SAML SSO | 📋 M5 |
 | SCIM provisioning | 📋 M5 |
 | RBAC | 📋 M4 |
@@ -59,7 +59,7 @@ _Last updated: 2026-07-06 (Phase 0)._
 | HA control plane | 📋 M5 |
 | Backup/restore | 📋 M6 |
 | Zero-downtime upgrades + documented rollback | 📋 M6 |
-| Versioned migrations | 📋 M2 |
+| Versioned migrations | ✅ forward-only, per-file transactional, recorded in `_migrations` |
 | OTel traces/metrics/logs | 📋 M6 |
 | SLO doc + capacity guidance | 📋 M8 |
 | Air-gap installer | 📋 M11 |
@@ -68,7 +68,7 @@ _Last updated: 2026-07-06 (Phase 0)._
 
 | Requirement | Status |
 |---|---|
-| Docker Compose 10-minute quickstart | 📋 M1–M2 |
+| Docker Compose 10-minute quickstart | ✅ `openrupiv new` → compose up (postgres + Dex + runtime), e2e-verified incl. 4-eyes flow; p50 timing on clean machines not yet measured |
 | Helm chart | 📋 M5 |
 | Terraform modules | 📋 M8 |
 | Reference architectures (AWS/Azure/GCP/on-prem/OpenShift) | 📋 M8 |
