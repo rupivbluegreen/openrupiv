@@ -38,6 +38,13 @@ export {
 export { AUDIT_READ_ROLES, registerAdminAuditRoutes } from "./admin";
 export { registerAdminAgentRoutes, AGENT_TRIGGER_ROLES, type AdminAgentsDeps } from "./admin-agents";
 export {
+  registerA2aEndpoint,
+  A2A_PROTOCOL_VERSION,
+  type A2aClientEntry,
+  type A2aConfig,
+  type A2aDeps,
+} from "./a2a";
+export {
   DEMO_REGISTERED_TOOLS,
   DEMO_TASK_PROCEDURES,
   READ_VENDOR_APPLICATION_TOOL,

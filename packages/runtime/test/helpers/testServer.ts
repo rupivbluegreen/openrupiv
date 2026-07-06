@@ -10,6 +10,7 @@ import type { McpClient } from "@openrupiv/mcp";
 import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
 import type { AppSpec } from "@openrupiv/spec";
 import type { FastifyInstance } from "fastify";
+import type { A2aConfig } from "../../src/a2a";
 import type { AgentTaskProcedureRegistry } from "../../src/agent-tasks";
 import type { OidcProvider } from "../../src/auth";
 import type { RuntimeConfig } from "../../src/config";
@@ -113,6 +114,8 @@ export async function buildTestServer(
     agents?: { runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry };
     /** Injected MCP client; default: createServer builds its own (inert unless configured). */
     mcpClient?: McpClient;
+    /** Optional: A2A remote-agent surface config (a2a.ts). Requires `agents` too — see ServerDeps.a2a. */
+    a2a?: A2aConfig;
   } = {},
 ): Promise<TestServer> {
   const logger = new CapturingLogger();
@@ -125,6 +128,7 @@ export async function buildTestServer(
     policyEngine: options.policyEngine ?? (await sharedPolicyEngine()),
     ...(options.agents ? { agents: options.agents } : {}),
     ...(options.mcpClient ? { mcpClient: options.mcpClient } : {}),
+    ...(options.a2a ? { a2a: options.a2a } : {}),
   });
   return { app, logger, config };
 }

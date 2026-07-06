@@ -10,10 +10,11 @@
  * - Login state (state, nonce, PKCE verifier) lives in a short-lived
  *   HMAC-signed HttpOnly cookie; the session is a longer-lived signed cookie
  *   (see session.ts). No server-side session store in v0.
- * - EVERY route requires a session except /healthz, /auth/*, and POST /mcp
- *   (which independently re-authenticates every request via its own
- *   bearer-token check instead of this cookie gate — see `isPublicPath`
- *   below). There is no anonymous mode (ADR-0003).
+ * - EVERY route requires a session except /healthz, /auth/*, POST /mcp, and
+ *   the A2A surface (POST /a2a/v1, GET /.well-known/agent-card.json) — each
+ *   independently re-authenticates every request via its own bearer-token
+ *   check instead of this cookie gate — see `isPublicPath` below. There is
+ *   no anonymous mode (ADR-0003).
  * - Plain-http issuers are allowed ONLY in explicit dev mode; otherwise the
  *   library's HTTPS-only enforcement stands.
  */
@@ -110,22 +111,35 @@ export function defaultOidcProvider(
 /**
  * Paths exempt from the cookie-based session gate below.
  *
- * `POST /mcp` is NOT an anonymous/public route — ADR-0003's "no anonymous
- * mode" still holds. It is exempted here only from THIS cookie check
- * because MCP callers are not browsers and never hold a session cookie;
- * `registerMcpServer` (mounted in server.ts) independently re-authenticates
- * every `/mcp` request via its own bearer-token check (`verifyToken`,
- * currently the platform's own signed session token presented as a Bearer
- * header instead of a Cookie — see mcp-capabilities.ts/server.ts) and 401s
- * on a missing/invalid token itself, same as this gate does for cookies.
+ * `POST /mcp` and the A2A surface (`POST /a2a/v1`, `GET
+ * /.well-known/agent-card.json`) are NOT anonymous/public routes — ADR-0003's
+ * "no anonymous mode" still holds. They are exempted here only from THIS
+ * cookie check because their callers are never browsers and never hold a
+ * session cookie: `registerMcpServer` (mounted in server.ts) independently
+ * re-authenticates every `/mcp` request via its own bearer-token check
+ * (`verifyToken`, currently the platform's own signed session token
+ * presented as a Bearer header instead of a Cookie — see
+ * mcp-capabilities.ts/server.ts), and `registerA2aEndpoint` (a2a.ts)
+ * independently re-authenticates every `/a2a/v1` request via a per-client
+ * shared-secret bearer check. Both 401 on a missing/invalid token
+ * themselves, same as this gate does for cookies. The agent card route is
+ * genuinely public discovery metadata unless `agentCardRequireAuth` is set,
+ * in which case a2a.ts itself gates it — never this cookie-based check.
  *
- * SECURITY-CRITICAL — human maintainer review required (CLAUDE.md). This
- * exemption is part of the Task 7 MCP-inbound-auth wiring, one of this
- * plan's flagged PROPOSED/interim design choices awaiting maintainer
- * sign-off (specs/phase-2-contracts.md §5; this plan's Global Constraints).
+ * SECURITY-CRITICAL — human maintainer review required (CLAUDE.md). The
+ * `/mcp` exemption is part of the Task 7 MCP-inbound-auth wiring; the A2A
+ * exemption is part of this Task 8 wiring — both are flagged
+ * PROPOSED/interim design choices awaiting maintainer sign-off
+ * (specs/phase-2-contracts.md §5/§6; this plan's Global Constraints).
  */
 function isPublicPath(pathname: string): boolean {
-  return pathname === "/healthz" || pathname.startsWith("/auth/") || pathname === "/mcp";
+  return (
+    pathname === "/healthz" ||
+    pathname.startsWith("/auth/") ||
+    pathname === "/mcp" ||
+    pathname === "/a2a/v1" ||
+    pathname === "/.well-known/agent-card.json"
+  );
 }
 
 function wantsHtml(request: FastifyRequest): boolean {

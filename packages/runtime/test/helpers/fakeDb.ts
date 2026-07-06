@@ -40,6 +40,7 @@ export class FakeDb implements Db {
     this.tables.set("_migrations", new Map());
     this.tables.set("audit_log", new Map());
     this.tables.set("agent_proposals", new Map());
+    this.tables.set("a2a_tasks", new Map());
   }
 
   /** audit_log rows in seq order (chain order), for assertions. */
@@ -231,6 +232,33 @@ export class FakeDb implements Db {
         return String(a["id"]).localeCompare(String(b["id"]));
       });
       return { rows: matched.map((r) => ({ ...r })), rowCount: matched.length };
+    }
+
+    // a2a_tasks insert (@openrupiv/runtime's a2a.ts SendMessage handler,
+    // exact column order). `result` is bound as a JSON string (a jsonb
+    // param); parsed immediately on write to mirror how a real Postgres
+    // jsonb column comes back already-parsed on SELECT.
+    if (
+      sql === "INSERT INTO a2a_tasks (id, client_id, skill, status, result) VALUES ($1,$2,$3,$4,$5)"
+    ) {
+      const [id, clientId, skill, status, result] = params;
+      this.table("a2a_tasks").set(String(id), {
+        id,
+        client_id: clientId,
+        skill,
+        status,
+        result: typeof result === "string" ? JSON.parse(result) : result,
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    // a2a_tasks lookup scoped to the requesting client (a2a.ts's GetTask handler).
+    if (sql === "SELECT * FROM a2a_tasks WHERE id = $1 AND client_id = $2") {
+      const id = String(params[0]);
+      const clientId = String(params[1]);
+      const row = this.table("a2a_tasks").get(id);
+      const match = row && row["client_id"] === clientId ? row : undefined;
+      return { rows: match ? [{ ...match }] : [], rowCount: match ? 1 : 0 };
     }
 
     // n-eyes approval insert with conflict-skip on the UNIQUE constraint.

@@ -18,6 +18,7 @@ import { createMcpClient, registerMcpServer, type McpClient } from "@openrupiv/m
 import { createPolicyEngine, type PolicyEngine, type PolicySubject } from "@openrupiv/policy";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerA2aEndpoint, type A2aConfig } from "./a2a";
 import { registerAdminAuditRoutes } from "./admin";
 import { registerAdminAgentRoutes } from "./admin-agents";
 import type { AgentTaskProcedureRegistry } from "./agent-tasks";
@@ -127,6 +128,8 @@ export interface ServerDeps {
   agents?: { runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry };
   /** MCP client (consumes external MCP servers as connectors). Defaults to one built from config.mcpServersConfigPath (inert if unset). */
   mcpClient?: McpClient;
+  /** Optional: A2A remote-agent surface. Requires BOTH `agents` above (a real dispatch target) and a non-empty client registry — absent either, the endpoint is not mounted. */
+  a2a?: A2aConfig;
 }
 
 /** Build the Fastify server (exported for tests). Does not listen. */
@@ -224,6 +227,18 @@ export async function createServer(
       audit: auditStore,
       logger,
       appRoles: spec.app.roles ?? [],
+    });
+  }
+  if (deps.agents && deps.a2a) {
+    registerA2aEndpoint(app, {
+      spec,
+      config: deps.a2a,
+      agentRuntime: deps.agents.runtime,
+      procedures: deps.agents.procedures,
+      policy: policyEngine,
+      audit: auditStore,
+      db,
+      logger,
     });
   }
   registerMcpServer(app, {

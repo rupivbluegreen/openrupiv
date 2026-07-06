@@ -26,6 +26,11 @@ export interface RuntimeConfig {
   devMode: boolean; // OPENRUPIV_DEV_MODE === "true"
   /** Optional: absolute path to a JSON file shaped { servers: McpServerEntry[] } (@openrupiv/mcp). Absent = the MCP client is inert (no config, no egress). MCP_SERVERS_CONFIG. */
   mcpServersConfigPath?: string;
+  /** Optional: A2A remote-agent registry. Absent/empty clients = the A2A endpoint is disabled (deny-by-default, specs/phase-2-contracts.md §6). */
+  a2a?: {
+    clients: { clientId: string; displayName?: string; allowedSkills: string[]; bearerTokenEnv: string }[];
+    agentCardRequireAuth: boolean;
+  };
 }
 
 /** The conspicuous dev-only client secret shipped with the Compose Dex stack. */
