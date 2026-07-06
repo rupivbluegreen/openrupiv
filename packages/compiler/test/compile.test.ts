@@ -132,13 +132,13 @@ describe("compileApp — determinism", () => {
 });
 
 describe("compileApp — unsupported sections", () => {
-  function withSection(section: "policies" | "agents" | "evidence"): AppSpec {
+  function withSection(section: "policies" | "evidence"): AppSpec {
     const spec = structuredClone(fixtures.minimalSpec);
     spec[section] = [{ name: "reserved-entry" }];
     return spec;
   }
 
-  for (const section of ["policies", "agents", "evidence"] as const) {
+  for (const section of ["policies", "evidence"] as const) {
     it(`rejects a non-empty ${section} section with ERR_UNSUPPORTED_SECTION at /${section}`, () => {
       const result = compileApp(withSection(section));
       expect(result.ok).toBe(false);
@@ -152,15 +152,14 @@ describe("compileApp — unsupported sections", () => {
     });
   }
 
-  it("reports every offending section in one pass", () => {
+  it("reports every offending section in one pass (agents no longer included)", () => {
     const spec = structuredClone(fixtures.vendorOnboardingSpec);
     spec.policies = [{ name: "four-eyes" }];
-    spec.agents = [{ name: "triage-bot" }];
     spec.evidence = [{ name: "approval-log" }];
     const result = compileApp(spec);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.errors.map((e) => e.path)).toEqual(["/policies", "/agents", "/evidence"]);
+    expect(result.errors.map((e) => e.path)).toEqual(["/policies", "/evidence"]);
     for (const error of result.errors) {
       expect(error.code).toBe("ERR_UNSUPPORTED_SECTION");
     }
@@ -172,5 +171,16 @@ describe("compileApp — unsupported sections", () => {
     spec.agents = [];
     spec.evidence = [];
     expect(compileApp(spec).ok).toBe(true);
+  });
+
+  it("compiles a v0.2 spec with a real, non-empty agents section", () => {
+    const spec = fixtures.vendorOnboardingWithAgentSpec;
+    const result = compileApp(spec);
+    expect(result.ok, JSON.stringify(!result.ok && result.errors)).toBe(true);
+    if (!result.ok) return;
+    const specJson = result.files.find((f) => f.path === "app/spec.json");
+    expect(specJson).toBeDefined();
+    const emitted = JSON.parse(specJson!.contents);
+    expect(emitted.agents).toEqual(spec.agents);
   });
 });

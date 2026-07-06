@@ -8,6 +8,8 @@
  */
 
 export const SPEC_VERSION = "0.1" as const;
+export const SPEC_VERSION_0_2 = "0.2" as const;
+export type SpecVersion = typeof SPEC_VERSION | typeof SPEC_VERSION_0_2;
 
 export type FieldType =
   | "string"
@@ -128,9 +130,27 @@ export interface PolicyDef {
   rego?: string;
 }
 
+export interface AgentProposalRef {
+  /** Must name an existing `WorkflowDef.name`. */
+  workflow: string;
+  /** Must name an existing transition within that workflow that carries an `approval` rule. */
+  transition: string;
+}
+
+/**
+ * v0.2: a governed agent task. `tools`/`proposes` are new in v0.2; a v0.1
+ * spec must not populate them (enforced structurally: v0.1 specs can only
+ * ever have an empty/absent `agents` array once compileApp accepts them —
+ * see the `ERR_AGENTS_REQUIRE_V0_2` semantic check in validate.ts).
+ */
 export interface AgentTaskDef {
+  /** kebab-case, unique across `agents`. */
   name: string;
   description?: string;
+  /** Tool allowlist. Deny-by-default: absent/empty = the task may call no tools. */
+  tools?: string[];
+  /** Human-gated transitions this task may propose. Agents never fire transitions directly. */
+  proposes?: AgentProposalRef[];
 }
 
 export interface EvidenceHookDef {
@@ -151,7 +171,7 @@ export interface AppMeta {
 }
 
 export interface AppSpec {
-  specVersion: typeof SPEC_VERSION;
+  specVersion: SpecVersion;
   app: AppMeta;
   entities: EntityDef[];
   pages?: PageDef[];

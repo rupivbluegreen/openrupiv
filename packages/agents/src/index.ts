@@ -23,7 +23,7 @@ export type {
   ToolSandbox,
 } from "./types";
 
-export { AgentTaskNotFoundError } from "./errors";
+export { AgentTaskNotFoundError, AgentToolUnregisteredError } from "./errors";
 export { AGENT_PROPOSALS_DDL } from "./migration";
 export { digestValue } from "./hashing";
 export {

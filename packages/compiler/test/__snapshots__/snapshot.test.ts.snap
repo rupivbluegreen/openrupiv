@@ -209,8 +209,12 @@ test("spec.json parses as a JSON object", () => {
   requireSpec();
 });
 
-test("specVersion is 0.1", () => {
-  assert.equal(requireSpec().specVersion, "0.1");
+test("specVersion is a supported version", () => {
+  const version = requireSpec().specVersion;
+  assert.ok(
+    ["0.1", "0.2"].includes(version),
+    "unsupported specVersion: " + version,
+  );
 });
 
 test("every workflow state exists on its entity's state field", () => {
@@ -663,8 +667,12 @@ test("spec.json parses as a JSON object", () => {
   requireSpec();
 });
 
-test("specVersion is 0.1", () => {
-  assert.equal(requireSpec().specVersion, "0.1");
+test("specVersion is a supported version", () => {
+  const version = requireSpec().specVersion;
+  assert.ok(
+    ["0.1", "0.2"].includes(version),
+    "unsupported specVersion: " + version,
+  );
 });
 
 test("every workflow state exists on its entity's state field", () => {
@@ -1190,8 +1198,12 @@ test("spec.json parses as a JSON object", () => {
   requireSpec();
 });
 
-test("specVersion is 0.1", () => {
-  assert.equal(requireSpec().specVersion, "0.1");
+test("specVersion is a supported version", () => {
+  const version = requireSpec().specVersion;
+  assert.ok(
+    ["0.1", "0.2"].includes(version),
+    "unsupported specVersion: " + version,
+  );
 });
 
 test("every workflow state exists on its entity's state field", () => {

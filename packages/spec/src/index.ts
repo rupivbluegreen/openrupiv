@@ -1,7 +1,9 @@
 export {
   SPEC_VERSION,
+  SPEC_VERSION_0_2,
   type AppMeta,
   type AppSpec,
+  type AgentProposalRef,
   type AgentTaskDef,
   type ApprovalRule,
   type EntityDef,
@@ -14,6 +16,7 @@ export {
   type PolicyDef,
   type PredicateOp,
   type RelationDef,
+  type SpecVersion,
   type TransitionDef,
   type TransitionGuard,
   type WorkflowDef,

@@ -166,6 +166,15 @@ downstream trusts an absent `tools`/`proposes` as anything other than
 `agents` shape, this cast becomes unnecessary and should be removed in favor
 of importing the real, richer type from `@openrupiv/spec` directly.
 
+### Startup-time tool validation
+
+`createAgentRuntime` now throws `AgentToolUnregisteredError` synchronously
+at construction if any spec-declared task's `tools` allowlist names a tool
+absent from the `tools` passed in `CreateAgentRuntimeDeps` — per
+specs/phase-2-contracts.md §4's "every `tools` name must resolve to a
+`RegisteredTool` at runtime startup — fail fast, typed error." Previously
+this only surfaced per-call as `ERR_TOOL_UNKNOWN`.
+
 ## Dependencies
 
 `@openrupiv/agents` depends on `@openrupiv/spec`, `@openrupiv/policy`,

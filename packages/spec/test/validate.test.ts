@@ -34,6 +34,21 @@ describe("validateSpec — canonical fixtures", () => {
   }
 });
 
+describe("validateSpec — vendorOnboardingWithAgentSpec fixture", () => {
+  it("is a valid v0.2 spec with one agent task proposing the approve transition", () => {
+    const result = validateSpec(JSON.parse(JSON.stringify(fixtures.vendorOnboardingWithAgentSpec)));
+    expect(result.ok, JSON.stringify(!result.ok && result.errors)).toBe(true);
+  });
+
+  it("carries the same entities/workflows as vendorOnboardingSpec, unchanged", () => {
+    expect(fixtures.vendorOnboardingWithAgentSpec.entities).toEqual(fixtures.vendorOnboardingSpec.entities);
+    expect(fixtures.vendorOnboardingWithAgentSpec.workflows).toEqual(fixtures.vendorOnboardingSpec.workflows);
+    // Ensure no shared array identity — the fixture is deep-cloned to prevent cross-mutation
+    expect(fixtures.vendorOnboardingWithAgentSpec.entities).not.toBe(fixtures.vendorOnboardingSpec.entities);
+    expect(fixtures.vendorOnboardingWithAgentSpec.workflows).not.toBe(fixtures.vendorOnboardingSpec.workflows);
+  });
+});
+
 describe("validateSpec — version and structure", () => {
   it("rejects non-objects", () => {
     for (const bad of [null, 42, "spec", [1]]) {
@@ -77,6 +92,89 @@ describe("validateSpec — version and structure", () => {
       "ERR_SCHEMA",
       "/workflows/0/transitions/2/approval/count",
     );
+  });
+
+  it("rejects an unsupported specVersion string that isn't 0.1 or 0.2", () => {
+    const bad = mutate(fixtures.minimalSpec, (d) => (d.specVersion = "0.3"));
+    expectError(validateSpec(bad), "ERR_SPEC_VERSION", "/specVersion");
+  });
+});
+
+describe("validateSpec — v0.2 agents", () => {
+  function v02Spec(overrides: Partial<AppSpec> = {}): AppSpec {
+    return {
+      ...fixtures.vendorOnboardingSpec,
+      specVersion: "0.2",
+      ...overrides,
+    };
+  }
+
+  it("accepts specVersion 0.2 with no agents", () => {
+    const result = validateSpec(v02Spec());
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts a valid agent task proposing an approval-gated transition", () => {
+    const spec = v02Spec({
+      agents: [
+        {
+          name: "vendor-risk-review",
+          description: "Reads a vendor application and proposes approval.",
+          tools: ["read-vendor-application"],
+          proposes: [{ workflow: "vendor-approval", transition: "approve" }],
+        },
+      ],
+    });
+    const result = validateSpec(spec);
+    expect(result.ok, JSON.stringify(!result.ok && result.errors)).toBe(true);
+  });
+
+  it("rejects a non-empty agents array under specVersion 0.1", () => {
+    const bad = mutate(fixtures.vendorOnboardingSpec, (d) => {
+      d.agents = [{ name: "vendor-risk-review" }];
+    });
+    expectError(validateSpec(bad), "ERR_AGENTS_REQUIRE_V0_2", "/agents");
+  });
+
+  it("rejects duplicate agent task names", () => {
+    const spec = v02Spec({
+      agents: [{ name: "dup" }, { name: "dup" }],
+    });
+    expectError(validateSpec(spec), "ERR_DUPLICATE_NAME", "/agents/1/name");
+  });
+
+  it("rejects proposes referencing an unknown workflow", () => {
+    const spec = v02Spec({
+      agents: [
+        { name: "t1", proposes: [{ workflow: "no-such-workflow", transition: "approve" }] },
+      ],
+    });
+    expectError(validateSpec(spec), "ERR_UNKNOWN_WORKFLOW", "/agents/0/proposes/0/workflow");
+  });
+
+  it("rejects proposes referencing an unknown transition", () => {
+    const spec = v02Spec({
+      agents: [
+        { name: "t1", proposes: [{ workflow: "vendor-approval", transition: "no-such-transition" }] },
+      ],
+    });
+    expectError(validateSpec(spec), "ERR_UNKNOWN_TRANSITION", "/agents/0/proposes/0/transition");
+  });
+
+  it("rejects proposes referencing a transition with no approval rule", () => {
+    const spec = v02Spec({
+      agents: [
+        { name: "t1", proposes: [{ workflow: "vendor-approval", transition: "submit" }] },
+      ],
+    });
+    expectError(validateSpec(spec), "ERR_AGENT_PROPOSAL_UNGATED", "/agents/0/proposes/0");
+  });
+
+  it("rejects a tools entry that is not kebab-case via the schema pattern", () => {
+    const spec = v02Spec({
+      agents: [{ name: "t1", tools: ["Not_Kebab"] }],
+    });
+    expectError(validateSpec(spec), "ERR_SCHEMA");
   });
 });
 

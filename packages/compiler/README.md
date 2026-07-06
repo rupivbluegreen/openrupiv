@@ -82,7 +82,7 @@ Per `specs/phase-1-contracts.md` §1:
 
 | Case | Error |
 |---|---|
-| Non-empty `policies` / `agents` / `evidence` | `ERR_UNSUPPORTED_SECTION` at `/policies` etc. — v0 cannot enforce these; dropping them silently would be a stubbed control (non-negotiable #2) |
+| Non-empty `policies` / `evidence` | `ERR_UNSUPPORTED_SECTION` at `/policies` etc. — v0 cannot enforce these; dropping them silently would be a stubbed control (non-negotiable #2). `agents` is compiled as of spec v0.2 (passed through verbatim into `app/spec.json`); `policies` and `evidence` remain rejected. |
 | Self-referential manyToMany relation | `ERR_UNSUPPORTED_SECTION` at the relation (join-table columns would collide) |
 | Field mapping to a reserved column (`id`, `created_at`, `updated_at`) or two fields colliding after snake_casing | `ERR_DUPLICATE_NAME` |
 | Defensive re-checks of enum values / reference targets | `ERR_BAD_ENUM`, `ERR_BAD_REFERENCE`, `ERR_UNKNOWN_ENTITY` |

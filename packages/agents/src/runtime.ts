@@ -33,7 +33,7 @@ import { appendInTransaction } from "@openrupiv/audit";
 import type { AuditStore } from "@openrupiv/audit";
 import type { PolicyEngine } from "@openrupiv/policy";
 import type { AppSpec } from "@openrupiv/spec";
-import { AgentTaskNotFoundError } from "./errors";
+import { AgentTaskNotFoundError, AgentToolUnregisteredError } from "./errors";
 import { digestValue } from "./hashing";
 import { AGENT_PROPOSALS_DDL } from "./migration";
 import type {
@@ -168,6 +168,14 @@ export function createAgentRuntime(
   for (const raw of spec.agents ?? []) {
     const task = raw as unknown as AgentTaskDef;
     tasksByName.set(task.name, task);
+  }
+
+  for (const task of tasksByName.values()) {
+    for (const toolName of task.tools ?? []) {
+      if (!toolsByName.has(toolName)) {
+        throw new AgentToolUnregisteredError(task.name, toolName);
+      }
+    }
   }
 
   async function callTool(
