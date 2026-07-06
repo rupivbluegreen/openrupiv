@@ -22,6 +22,8 @@ export type RuntimeErrorCode =
   | "ERR_OIDC_DISCOVERY"
   /** OIDC callback failed (state/nonce/PKCE/token validation). */
   | "ERR_OIDC_CALLBACK"
+  /** OIDC sub carries a reserved machine-identity prefix ("agent:"/"a2a:"). */
+  | "ERR_RESERVED_IDENTITY_PREFIX"
   /** Request has no valid session. */
   | "ERR_UNAUTHENTICATED"
   /** Record or route not found. */

@@ -35,6 +35,7 @@ import {
   SESSION_TTL_SECONDS,
   cookieOptions,
   createSession,
+  hasReservedIdentityPrefix,
   isSessionData,
   signPayload,
   verifyPayload,
@@ -377,6 +378,24 @@ export function registerAuth(
       throw new RuntimeError(
         "ERR_OIDC_CALLBACK",
         "ID token is missing a sub claim",
+        { statusCode: 401 },
+      );
+    }
+
+    if (hasReservedIdentityPrefix(claims.sub)) {
+      logger.warn(
+        { event: "auth.reserved_identity_rejected", sub: claims.sub },
+        "OIDC sub carries a reserved machine-identity prefix; rejecting",
+      );
+      await record({
+        event: "auth.reserved_identity_rejected",
+        actor: claims.sub,
+        actorType: "system",
+        attributes: { reason: "reserved_prefix" },
+      });
+      throw new RuntimeError(
+        "ERR_RESERVED_IDENTITY_PREFIX",
+        `OIDC sub ${JSON.stringify(claims.sub)} carries a reserved identity prefix ("agent:" or "a2a:") and cannot be used for a human session`,
         { statusCode: 401 },
       );
     }
