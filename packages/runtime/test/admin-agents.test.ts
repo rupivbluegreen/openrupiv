@@ -76,6 +76,30 @@ describe("admin agent routes", () => {
     expect(body.proposals[0]).toMatchObject({ recordId: applicationId, transition: "approve" });
   });
 
+  it("a FAILED task run (invalid_input, no recordId) is reported as status: failed, not completed (finding admin-a2a-outcome-status-mismatch)", async () => {
+    const res = await server.app.inject({
+      method: "POST",
+      url: `/admin/agents/${VENDOR_RISK_REVIEW_TASK}/run`,
+      headers: admin,
+      payload: {}, // no recordId -> vendorRiskReview returns { reason: "invalid_input" }, a failure
+    });
+    expect(res.statusCode).toBe(202);
+    // Before the fix this incorrectly reported status: "completed" alongside
+    // the self-contradictory reason: "invalid_input" -- the exact
+    // inconsistency this fix closes.
+    expect(res.json()).toMatchObject({ status: "failed", reason: "invalid_input" });
+  });
+
+  it("GET /admin/agent-proposals?recordId=<non-uuid> returns a clean 400, not a raw 500 (finding admin-agent-proposals-recordId-validation)", async () => {
+    const res = await server.app.inject({
+      method: "GET",
+      url: "/admin/agent-proposals?recordId=not-a-uuid",
+      headers: admin,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: "ERR_VALIDATION" });
+  });
+
   it("404s for a task name not declared in the spec", async () => {
     const res = await server.app.inject({
       method: "POST",

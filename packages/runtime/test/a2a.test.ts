@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createAgentRuntime, type AgentRuntime } from "@openrupiv/agents";
 import { rowToRecord, type AuditRecord, type AuditRecordInput, type AuditStore } from "@openrupiv/audit";
+import type { PolicyDecision, PolicyEngine, PolicyInput } from "@openrupiv/policy";
 import { fixtures } from "@openrupiv/spec";
+import type { A2aClientEntry } from "../src/a2a";
 import {
   DEMO_REGISTERED_TOOLS,
   DEMO_TASK_PROCEDURES,
@@ -34,12 +36,36 @@ function auditStoreFailingOn(db: FakeDb, failingEvent: string): AuditStore {
   };
 }
 
+/** Policy engine whose decision is driven by a caller-supplied predicate (mirrors @openrupiv/mcp's test fakes). */
+function createFakePolicyEngine(decide: (input: PolicyInput) => PolicyDecision | Promise<PolicyDecision>): PolicyEngine {
+  return { decide: async (input) => decide(input) };
+}
+
+/** Allows everything, but every decision carries the given `policyId` (finding "a2a-policy-decision-convention"). */
+function fixedPolicyIdEngine(policyId: string): PolicyEngine {
+  return createFakePolicyEngine(() => ({ allow: true, reason: "test: allow all", policyId }));
+}
+
+/** Denies exactly the one named action; allows everything else. */
+function denyActionPolicyEngine(deniedAction: string, reason: string, policyId: string): PolicyEngine {
+  return createFakePolicyEngine((input) =>
+    input.action === deniedAction
+      ? { allow: false, reason, policyId }
+      : { allow: true, reason: "test: allow all", policyId: "allow-all" },
+  );
+}
+
 async function buildA2aServer(
   db: FakeDb,
   sandbox: FakeToolSandbox,
   procedures: AgentTaskProcedureRegistry = DEMO_TASK_PROCEDURES,
   wrapAgentRuntime: (real: AgentRuntime) => AgentRuntime = (real) => real,
-  overrides: { auditStore?: AuditStore; agentRuntimeAudit?: AuditStore } = {},
+  overrides: {
+    auditStore?: AuditStore;
+    agentRuntimeAudit?: AuditStore;
+    policyEngine?: PolicyEngine;
+    clients?: A2aClientEntry[];
+  } = {},
 ) {
   const agentRuntime = createAgentRuntime(spec, {
     db: db as never,
@@ -54,10 +80,13 @@ async function buildA2aServer(
   return buildTestServer(spec, db, {
     agents: { runtime: wrapAgentRuntime(agentRuntime), procedures },
     a2a: {
-      clients: [{ clientId: "partner-agent", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_SECRET" }],
+      clients: overrides.clients ?? [
+        { clientId: "partner-agent", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_SECRET" },
+      ],
       agentCardRequireAuth: false,
     },
     ...(overrides.auditStore ? { auditStore: overrides.auditStore } : {}),
+    ...(overrides.policyEngine ? { policyEngine: overrides.policyEngine } : {}),
   });
 }
 
@@ -66,7 +95,15 @@ describe("A2A endpoint", () => {
     const server = await buildA2aServer(new FakeDb(), new FakeToolSandbox());
     const res = await server.app.inject({ method: "GET", url: "/.well-known/agent-card.json" });
     expect(res.statusCode).toBe(200);
-    expect(res.json().skills.map((s: { name: string }) => s.name)).toContain(VENDOR_RISK_REVIEW_TASK);
+    const body = res.json();
+    expect(body.skills.map((s: { name: string }) => s.name)).toContain(VENDOR_RISK_REVIEW_TASK);
+    // Finding "a2a-card-oauth2-mismatch": the card must describe the
+    // endpoint's ACTUAL bearer mechanism (a shared secret) rather than
+    // advertising a nonexistent OAuth2 flow -- a real A2A client reading
+    // "oauth2" here would attempt a token exchange this deployment can
+    // never satisfy.
+    expect(body.securitySchemes.oauth2).toBeUndefined();
+    expect(body.securitySchemes.bearerAuth).toMatchObject({ type: "http", scheme: "bearer" });
   });
 
   it("rejects a request missing the A2A-Version header", async () => {
@@ -342,5 +379,237 @@ describe("A2A endpoint", () => {
     // into the catch block and attempt a SECOND agent.task_finished append
     // for the same run.
     expect(finishAttempts).toBe(1);
+  });
+
+  describe("finding a2a-unauth-unbounded-audit-writes: rejected-bearer audit is rate-limited (mirrors @openrupiv/mcp's analogous fix)", () => {
+    it("the SAME invalid bearer repeated many times is deduped to one a2a.auth_rejected append", async () => {
+      const db = new FakeDb();
+      const server = await buildA2aServer(db, new FakeToolSandbox());
+
+      const N = 25;
+      for (let i = 0; i < N; i++) {
+        const res = await server.app.inject({
+          method: "POST",
+          url: "/a2a/v1",
+          headers: { authorization: "Bearer same-garbage-token", "a2a-version": "1.0" },
+          payload: { jsonrpc: "2.0", id: 1, method: "SendMessage", params: {} },
+        });
+        expect(res.statusCode).toBe(401);
+      }
+      // N identical rejected requests -> exactly ONE durable append, not N.
+      expect(auditRecords(db).filter((r) => r.event === "a2a.auth_rejected")).toHaveLength(1);
+    });
+
+    it("many requests with no bearer at all are deduped to one a2a.auth_rejected append", async () => {
+      const db = new FakeDb();
+      const server = await buildA2aServer(db, new FakeToolSandbox());
+
+      const N = 25;
+      for (let i = 0; i < N; i++) {
+        const res = await server.app.inject({
+          method: "POST",
+          url: "/a2a/v1",
+          headers: { "a2a-version": "1.0" },
+          payload: { jsonrpc: "2.0", id: 1, method: "SendMessage", params: {} },
+        });
+        expect(res.statusCode).toBe(401);
+      }
+      expect(auditRecords(db).filter((r) => r.event === "a2a.auth_rejected")).toHaveLength(1);
+    });
+
+    it("many DISTINCT bad bearer tokens are capped by the rolling window, not growing linearly with N", async () => {
+      const db = new FakeDb();
+      const server = await buildA2aServer(db, new FakeToolSandbox());
+
+      const N = 100;
+      for (let i = 0; i < N; i++) {
+        const res = await server.app.inject({
+          method: "POST",
+          url: "/a2a/v1",
+          headers: { authorization: `Bearer distinct-garbage-${i}`, "a2a-version": "1.0" },
+          payload: { jsonrpc: "2.0", id: 1, method: "SendMessage", params: {} },
+        });
+        expect(res.statusCode).toBe(401);
+      }
+      const rejected = auditRecords(db).filter((r) => r.event === "a2a.auth_rejected");
+      // The default rolling-window cap (20 new distinct rejections per
+      // minute) bounds this well below N, even though every token differs.
+      expect(rejected.length).toBeLessThan(N);
+      expect(rejected.length).toBeLessThanOrEqual(20);
+    });
+  });
+
+  it("SendMessage with a non-array message.parts does not 500 -- treated as no data part (finding a2a-sendMessage-parts-throw)", async () => {
+    const db = new FakeDb();
+    const server = await buildA2aServer(db, new FakeToolSandbox());
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer test-a2a-shared-secret", "a2a-version": "1.0" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        // `message.parts` is a bare string, not an array: truthy, so the
+        // `p.message?.parts?.find(...)` optional chain would NOT
+        // short-circuit before the fix -- `.find` is not a function on a
+        // string, throwing an unhandled TypeError.
+        params: { skill: VENDOR_RISK_REVIEW_TASK, message: { parts: "not-an-array" } },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    // No data part found -> vendorRiskReview receives {} as input -> its own
+    // recordId validation fails cleanly with reason "invalid_input" (a
+    // normal task failure, not a raw 500/unhandled exception).
+    expect(body.result.status.state).toBe("failed");
+    expect(body.result.result.reason).toBe("invalid_input");
+  });
+
+  it("a FAILED task run (invalid_input, no data part) is reported as status: failed over A2A too (finding admin-a2a-outcome-status-mismatch)", async () => {
+    const db = new FakeDb();
+    const server = await buildA2aServer(db, new FakeToolSandbox());
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer test-a2a-shared-secret", "a2a-version": "1.0" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        params: { skill: VENDOR_RISK_REVIEW_TASK, message: { parts: [] } },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.result.status.state).toBe("failed");
+    expect(body.result.result.reason).toBe("invalid_input");
+  });
+
+  it("the a2a.call audit record carries the PDP decision's policyId (finding a2a-policy-decision-convention)", async () => {
+    const db = new FakeDb();
+    const row = db.seedRow("vendor_application", { vendor_id: randomUUID(), justification: "j", annual_spend: 1, status: "in_review" });
+    const recordId = String(row["id"]);
+    const sandbox = new FakeToolSandbox();
+    sandbox.queueResult({ ok: true, output: { id: recordId, status: "in_review" }, durationMs: 1 });
+    const server = await buildA2aServer(db, sandbox, DEMO_TASK_PROCEDURES, undefined, {
+      policyEngine: fixedPolicyIdEngine("fake-policy-42"),
+    });
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer test-a2a-shared-secret", "a2a-version": "1.0" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        params: { skill: VENDOR_RISK_REVIEW_TASK, message: { parts: [{ kind: "data", data: { recordId } }] } },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const calls = auditRecords(db).filter((r) => r.event === "a2a.call");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ decision: "allow", attributes: { policyId: "fake-policy-42" } });
+  });
+
+  it("a skill within allowedSkills but DENIED by policy returns -32001 Forbidden, audited as a2a.call with decision deny (finding a2a-policy-deny-untested)", async () => {
+    const db = new FakeDb();
+    const denyEngine = denyActionPolicyEngine(
+      `a2a.skill:${VENDOR_RISK_REVIEW_TASK}`,
+      "vendor risk review is disabled for this client",
+      "deny-policy-id",
+    );
+    const server = await buildA2aServer(db, new FakeToolSandbox(), DEMO_TASK_PROCEDURES, undefined, {
+      policyEngine: denyEngine,
+    });
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer test-a2a-shared-secret", "a2a-version": "1.0" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        params: { skill: VENDOR_RISK_REVIEW_TASK, message: { parts: [] } },
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.error).toBeDefined();
+    expect(body.error.code).toBe(-32001);
+    expect(body.error.message).toContain("vendor risk review is disabled for this client");
+
+    const calls = auditRecords(db).filter((r) => r.event === "a2a.call");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      decision: "deny",
+      attributes: {
+        skill: VENDOR_RISK_REVIEW_TASK,
+        reason: "vendor risk review is disabled for this client",
+        policyId: "deny-policy-id",
+      },
+    });
+  });
+
+  it("cross-client task isolation: client B's GetTask for client A's task id returns 'task not found', not client A's data (finding a2a-cross-client-isolation-untested)", async () => {
+    const db = new FakeDb();
+    const row = db.seedRow("vendor_application", { vendor_id: randomUUID(), justification: "j", annual_spend: 1, status: "in_review" });
+    const recordId = String(row["id"]);
+    const sandbox = new FakeToolSandbox();
+    sandbox.queueResult({ ok: true, output: { id: recordId, status: "in_review" }, durationMs: 1 });
+
+    process.env["OPENRUPIV_TEST_A2A_CLIENT_A_SECRET"] = "client-a-secret";
+    process.env["OPENRUPIV_TEST_A2A_CLIENT_B_SECRET"] = "client-b-secret";
+    const server = await buildA2aServer(db, sandbox, DEMO_TASK_PROCEDURES, undefined, {
+      clients: [
+        { clientId: "client-a", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_CLIENT_A_SECRET" },
+        { clientId: "client-b", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_CLIENT_B_SECRET" },
+      ],
+    });
+
+    const send = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer client-a-secret", "a2a-version": "1.0" },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "SendMessage",
+        params: { skill: VENDOR_RISK_REVIEW_TASK, message: { parts: [{ kind: "data", data: { recordId } }] } },
+      },
+    });
+    expect(send.statusCode).toBe(200);
+    const taskId = send.json().result.id;
+
+    // Client B, using its OWN valid bearer, tries to fetch client A's task.
+    const getAsB = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer client-b-secret", "a2a-version": "1.0" },
+      payload: { jsonrpc: "2.0", id: 2, method: "GetTask", params: { id: taskId } },
+    });
+    expect(getAsB.statusCode).toBe(200);
+    const bodyAsB = getAsB.json();
+    expect(bodyAsB.error).toBeDefined();
+    expect(bodyAsB.error.code).toBe(-32001);
+    expect(bodyAsB.error.message).toMatch(/not found/i);
+
+    // Sanity check: client A itself can still retrieve its own task.
+    const getAsA = await server.app.inject({
+      method: "POST",
+      url: "/a2a/v1",
+      headers: { authorization: "Bearer client-a-secret", "a2a-version": "1.0" },
+      payload: { jsonrpc: "2.0", id: 3, method: "GetTask", params: { id: taskId } },
+    });
+    expect(getAsA.statusCode).toBe(200);
+    expect(getAsA.json().result.id).toBe(taskId);
   });
 });

@@ -15,6 +15,20 @@ export interface AgentTaskOutcome {
   detail?: Record<string, unknown>;
 }
 
+/**
+ * The one shared decision point for "did this task run succeed" (finding
+ * "admin-a2a-outcome-status-mismatch": the admin trigger route and the A2A
+ * `SendMessage` handler used to derive `status` independently and
+ * disagreed for the identical outcome). `"proposed"` is `vendorRiskReview`'s
+ * only success `reason` — its other reasons (`"invalid_input"`,
+ * `"read_failed"`) and the generic `"error"` reason used by both callers'
+ * unexpected-throw paths are all failures. Both `admin-agents.ts` and
+ * `a2a.ts` must call this instead of each re-deriving the same check.
+ */
+export function isSuccessOutcome(outcome: AgentTaskOutcome): boolean {
+  return outcome.reason === "proposed";
+}
+
 /** A task's fixed procedure: drives zero or more callTool/propose calls. The caller (admin route or A2A dispatch) invokes ctx.finish(outcome) afterward — the procedure itself never calls finish(). */
 export type AgentTaskProcedure = (
   ctx: AgentContext,

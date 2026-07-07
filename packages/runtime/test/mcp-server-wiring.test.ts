@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { fixtures } from "@openrupiv/spec";
+import { signPayload } from "../src/session";
 import { FakeDb } from "./helpers/fakeDb";
-import { buildTestServer, sessionCookieFor } from "./helpers/testServer";
+import { buildTestServer, sessionCookieFor, TEST_SESSION_SECRET } from "./helpers/testServer";
 
 const spec = fixtures.vendorOnboardingSpec;
 
@@ -13,6 +14,46 @@ describe("MCP server wiring", () => {
     const res = await server.app.inject({
       method: "POST",
       url: "/mcp",
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("POST /mcp with a garbage/malformed bearer -> 401 (finding mcp-bearer-negative-path-untested)", async () => {
+    const db = new FakeDb();
+    const server = await buildTestServer(spec, db);
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: "Bearer not-a-real-token-at-all" },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("POST /mcp with a validly-signed txn-purpose token presented as a bearer -> 401 (cross-purpose token rejected, mirrors auth.ts's 'txn replayed as session cookie' test)", async () => {
+    const db = new FakeDb();
+    const server = await buildTestServer(spec, db);
+    // Forge exactly what /auth/login hands an unauthenticated caller: a
+    // validly-signed txn payload -- but for the "txn" purpose, not
+    // "session". Presented as an MCP bearer it must NOT authenticate,
+    // proving verifyToken's `verifyPayload<SessionData>(bearer, secret,
+    // "session")` call genuinely checks the purpose and doesn't just
+    // verify the HMAC signature.
+    const now = Math.floor(Date.now() / 1000);
+    const txn = {
+      state: "s",
+      nonce: "n",
+      codeVerifier: "v",
+      returnTo: "/",
+      iat: now,
+      exp: now + 600,
+    };
+    const txnToken = signPayload(txn, TEST_SESSION_SECRET, "txn");
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: `Bearer ${txnToken}` },
       payload: { jsonrpc: "2.0", id: 1, method: "tools/list" },
     });
     expect(res.statusCode).toBe(401);

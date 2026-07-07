@@ -18,7 +18,9 @@ import type { PolicyEngine } from "@openrupiv/policy";
 import type { AppSpec } from "@openrupiv/spec";
 import type { AuditStore } from "@openrupiv/audit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { AgentTaskOutcome, AgentTaskProcedureRegistry } from "./agent-tasks";
+import { isSuccessOutcome, type AgentTaskOutcome, type AgentTaskProcedureRegistry } from "./agent-tasks";
+import { auditBestEffort } from "./audit";
+import { createRejectedCookieLimiter } from "./auth";
 import type { Db } from "./db";
 import { isUuid } from "./naming";
 import type { Logger } from "./logger";
@@ -78,34 +80,21 @@ function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0" as const, id: (id as string | number | null) ?? null, error: { code, message } };
 }
 
-/**
- * Best-effort-with-log append: the contract elsewhere in this codebase
- * (`packages/runtime/src/audit.ts`'s `appendOrFail`/`appendAllOrFail`/
- * `auditBestEffort`) is "appends never silently fail" -- every failure path
- * logs the full event at error level so the record is at least preserved in
- * the structured log stream. This helper mirrors `auditBestEffort`'s log
- * shape/message style exactly. Callers here choose what to do with the
- * boolean: the two `a2a.call` sites fail the request closed on `false`
- * (before any task side effect has run); the later `a2a.result` site
- * deliberately does NOT fail closed on `false` (the task has already run by
- * then -- see the call site's own comment).
- */
-async function safeAudit(deps: A2aDeps, input: Parameters<AuditStore["append"]>[0]): Promise<boolean> {
-  try {
-    await deps.audit.append(input);
-    return true;
-  } catch (error) {
-    deps.logger.error(
-      { event: "audit.append_failed", auditEvent: input.event, auditRecord: input, err: error },
-      "best-effort audit append failed; event preserved in this log line",
-    );
-    return false;
-  }
-}
-
 export function registerA2aEndpoint(app: FastifyInstance, deps: A2aDeps): void {
   const clientById = new Map(deps.config.clients.map((c) => [c.clientId, c]));
   if (clientById.size === 0) return; // deny-by-default: no registered clients = endpoint disabled
+
+  // Finding "a2a-unauth-unbounded-audit-writes": bounds how often a
+  // rejected/missing A2A bearer durably audits `a2a.auth_rejected`,
+  // independent of request rate -- the exact same bug class already fixed
+  // for auth.ts's session cookie (`createRejectedCookieLimiter`) and
+  // @openrupiv/mcp's `/mcp` bearer (`createRejectedTokenLimiter`), just
+  // missed for A2A in that same commit. `createRejectedCookieLimiter`'s
+  // algorithm is generic over "rejected credential value" despite its
+  // cookie-flavored name -- reused directly here since a2a.ts lives in the
+  // same package as auth.ts (no cross-package seam needed, unlike the MCP
+  // case).
+  const rejectedAuthLimiter = createRejectedCookieLimiter();
 
   app.get("/.well-known/agent-card.json", async (request: FastifyRequest, reply: FastifyReply) => {
     if (deps.config.agentCardRequireAuth) {
@@ -121,7 +110,19 @@ export function registerA2aEndpoint(app: FastifyInstance, deps: A2aDeps): void {
       description: deps.spec.app.description ?? "",
       version: deps.spec.app.version,
       skills,
-      securitySchemes: { oauth2: { type: "oauth2" } },
+      // Finding "a2a-card-oauth2-mismatch": the endpoint's ACTUAL mechanism
+      // is a per-client shared secret compared with `timingSafeEqual` (see
+      // this file's header comment), not the OAuth 2.0 client-credentials
+      // grant -- advertising `oauth2` here would send a real A2A client
+      // down a discovery-driven flow that doesn't exist on this deployment.
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          description:
+            "Shared secret per registered client (interim; see this package's README \"Interim, PROPOSED bearer-verification choices\" section for the planned OAuth 2.0 client-credentials migration).",
+        },
+      },
       url: "/a2a/v1",
     });
   });
@@ -139,12 +140,24 @@ export function registerA2aEndpoint(app: FastifyInstance, deps: A2aDeps): void {
     const bearer = extractBearer(request.headers.authorization);
     const client = bearer ? verifyA2aClient(bearer, deps.config.clients) : null;
     if (!client) {
-      await safeAudit(deps, {
-        event: "a2a.auth_rejected",
-        actor: "system",
-        actorType: "system",
-        attributes: { reason: bearer ? "invalid_token" : "missing_token" },
-      });
+      const reason = bearer ? "invalid_token" : "missing_token";
+      // Always logged, at full fidelity, regardless of path or the
+      // durable-append rate limit below -- only the audit-chain write (and
+      // its chain-tail lock) is bounded, never the observability signal
+      // (mirrors auth.ts's rejectedCookieLimiter usage).
+      deps.logger.warn({ event: "a2a.auth_rejected", reason }, "A2A bearer rejected");
+      // No credential value to hash for the missing-token case -- use the
+      // empty-string sentinel so repeated no-bearer-at-all requests dedup
+      // against each other exactly like a repeated bad token would (mirrors
+      // rate-limit.ts's mcp equivalent).
+      if (rejectedAuthLimiter.shouldAppend(bearer ?? "")) {
+        await auditBestEffort(deps.audit, deps.logger, {
+          event: "a2a.auth_rejected",
+          actor: "system",
+          actorType: "system",
+          attributes: { reason },
+        });
+      }
       reply.code(401);
       return reply.send(rpcError(id, -32001, "Unauthorized"));
     }
@@ -172,15 +185,24 @@ async function handleSendMessage(
   deps: A2aDeps,
   reply: FastifyReply,
 ) {
-  const p = (params ?? {}) as { skill?: unknown; message?: { parts?: { kind?: string; data?: unknown }[] } };
+  const p = (params ?? {}) as { skill?: unknown; message?: { parts?: unknown } };
   const skill = typeof p.skill === "string" ? p.skill : undefined;
-  const dataPart = p.message?.parts?.find((part) => part.kind === "data");
+  // `params.message.parts` is caller-controlled: a truthy non-array (e.g. a
+  // string, a number, a bare object) does not short-circuit the optional
+  // chain above, but `.find` is not a function on those values -- guard with
+  // Array.isArray before calling it (finding "a2a-sendMessage-parts-throw")
+  // so a malformed value degrades to "no data part" instead of an unhandled
+  // TypeError surfacing as a raw 500.
+  const parts = Array.isArray(p.message?.parts)
+    ? (p.message.parts as { kind?: string; data?: unknown }[])
+    : [];
+  const dataPart = parts.find((part) => part.kind === "data");
   const input = (dataPart?.data ?? {}) as Record<string, unknown>;
 
   const identity = { id: `a2a:${client.clientId}`, roles: [] as string[] };
 
   if (!skill || !client.allowedSkills.includes(skill)) {
-    const audited = await safeAudit(deps, {
+    const audited = await auditBestEffort(deps.audit, deps.logger, {
       event: "a2a.call",
       actor: identity.id,
       actorType: "agent",
@@ -199,13 +221,20 @@ async function handleSendMessage(
     action: `a2a.skill:${skill}`,
     resource: { type: "a2a.skill", id: skill, allowedRoles: [] },
   });
-  const audited = await safeAudit(deps, {
+  const audited = await auditBestEffort(deps.audit, deps.logger, {
     event: "a2a.call",
     actor: identity.id,
     actorType: "agent",
     subject: skill,
     decision: decision.allow ? "allow" : "deny",
-    attributes: { skill, reason: decision.reason },
+    // `policyId` (finding "a2a-policy-decision-convention"): every other PDP
+    // decision point in this runtime (admin-agents.ts's `authorize()`)
+    // records `policyId` alongside the allow/deny reason so forensic
+    // analysts can trace which rule decided -- this combined `a2a.call`
+    // event mirrors @openrupiv/mcp's own single-event `mcp.serve_call`
+    // design (see packages/mcp/src/server.ts), just previously dropped
+    // `policyId` from its attributes.
+    attributes: { skill, reason: decision.reason, policyId: decision.policyId },
   });
   if (!audited) {
     return reply.send(rpcError(id, -32000, "audit unavailable"));
@@ -270,7 +299,7 @@ async function handleSendMessage(
       }
       if (outcome !== undefined) {
         await ctx.finish(outcome);
-        status = outcome.reason === "proposed" ? "completed" : "failed";
+        status = isSuccessOutcome(outcome) ? "completed" : "failed";
         result = outcome;
       }
     }
@@ -286,10 +315,9 @@ async function handleSendMessage(
   // may already be committed. Failing the HTTP response here would tell the
   // caller the task didn't run when it genuinely did, so the real outcome
   // below is always returned regardless of whether this append lands.
-  // `safeAudit` itself now logs the full event at error level on failure
-  // (see its doc comment), so nothing is silently lost even though the
-  // response doesn't change.
-  await safeAudit(deps, {
+  // `auditBestEffort` itself logs the full event at error level on failure,
+  // so nothing is silently lost even though the response doesn't change.
+  await auditBestEffort(deps.audit, deps.logger, {
     event: "a2a.result",
     actor: identity.id,
     actorType: "agent",

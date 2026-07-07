@@ -256,9 +256,13 @@ export function registerAuth(
   // Auth events have no DB side effect to bind to, so they append
   // BEST-EFFORT (contract §2): an audit failure is logged at error level with
   // the event preserved and never blocks login/logout. attributes carry no
-  // secrets/tokens — only subs, roles, and rejection reasons.
-  const record = (input: AuditRecordInput): Promise<void> =>
-    audit ? auditBestEffort(audit, logger, input) : Promise.resolve();
+  // secrets/tokens — only subs, roles, and rejection reasons. `auditBestEffort`
+  // now resolves to a `boolean` (a2a.ts's callers use it to decide whether to
+  // fail closed); this caller still doesn't care either way, so the value is
+  // simply discarded.
+  const record = async (input: AuditRecordInput): Promise<void> => {
+    if (audit) await auditBestEffort(audit, logger, input);
+  };
 
   // Finding "unauth-unbounded-audit-writes": bounds how often a rejected
   // session cookie durably audits, independent of the request rate.

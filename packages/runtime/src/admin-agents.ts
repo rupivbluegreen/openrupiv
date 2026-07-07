@@ -12,11 +12,12 @@ import type { AgentRuntime } from "@openrupiv/agents";
 import { AgentTaskNotFoundError } from "@openrupiv/agents";
 import type { PolicyEngine } from "@openrupiv/policy";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import type { AgentTaskProcedureRegistry } from "./agent-tasks";
+import { isSuccessOutcome, type AgentTaskProcedureRegistry } from "./agent-tasks";
 import { appendOrFail } from "./audit";
 import type { AuditStore } from "@openrupiv/audit";
 import { RuntimeError } from "./errors";
 import type { Logger } from "./logger";
+import { isUuid } from "./naming";
 
 export const AGENT_TRIGGER_ROLES: readonly string[] = ["admin"];
 
@@ -121,7 +122,8 @@ export function registerAdminAgentRoutes(app: FastifyInstance, deps: AdminAgents
         throw error;
       }
       await ctx.finish(outcome);
-      await reply.code(202).send({ status: "completed", ...outcome });
+      const status = isSuccessOutcome(outcome) ? "completed" : "failed";
+      await reply.code(202).send({ status, ...outcome });
     },
   );
 
@@ -129,6 +131,15 @@ export function registerAdminAgentRoutes(app: FastifyInstance, deps: AdminAgents
     "/admin/agent-proposals",
     async (request, reply) => {
       await authorize(request, deps, appRoleSet, "*");
+      // `agent_proposals.record_id` is `uuid` typed -- a non-UUID string
+      // reaching Postgres raises an uncaught "invalid input syntax for type
+      // uuid" error, surfacing as a generic 500 instead of a clean 400
+      // (finding "admin-agent-proposals-recordId-validation"; same bug
+      // class as a2a.ts's GetTask id check). `workflow` is a plain text
+      // field and needs no such guard.
+      if (request.query.recordId !== undefined && !isUuid(request.query.recordId)) {
+        throw new RuntimeError("ERR_VALIDATION", "recordId must be a UUID", { statusCode: 400 });
+      }
       const proposals = await deps.runtime.listProposals({
         ...(request.query.workflow !== undefined ? { workflow: request.query.workflow } : {}),
         ...(request.query.recordId !== undefined ? { recordId: request.query.recordId } : {}),

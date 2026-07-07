@@ -49,6 +49,7 @@ export {
   DEMO_TASK_PROCEDURES,
   READ_VENDOR_APPLICATION_TOOL,
   VENDOR_RISK_REVIEW_TASK,
+  isSuccessOutcome,
   type AgentTaskOutcome,
   type AgentTaskProcedure,
   type AgentTaskProcedureRegistry,
