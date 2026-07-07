@@ -18,8 +18,9 @@ import type { PolicyEngine } from "@openrupiv/policy";
 import type { AppSpec } from "@openrupiv/spec";
 import type { AuditStore } from "@openrupiv/audit";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import type { AgentTaskProcedureRegistry } from "./agent-tasks";
+import type { AgentTaskOutcome, AgentTaskProcedureRegistry } from "./agent-tasks";
 import type { Db } from "./db";
+import { isUuid } from "./naming";
 import type { Logger } from "./logger";
 
 export const A2A_PROTOCOL_VERSION = "1.0";
@@ -77,11 +78,27 @@ function rpcError(id: unknown, code: number, message: string) {
   return { jsonrpc: "2.0" as const, id: (id as string | number | null) ?? null, error: { code, message } };
 }
 
+/**
+ * Best-effort-with-log append: the contract elsewhere in this codebase
+ * (`packages/runtime/src/audit.ts`'s `appendOrFail`/`appendAllOrFail`/
+ * `auditBestEffort`) is "appends never silently fail" -- every failure path
+ * logs the full event at error level so the record is at least preserved in
+ * the structured log stream. This helper mirrors `auditBestEffort`'s log
+ * shape/message style exactly. Callers here choose what to do with the
+ * boolean: the two `a2a.call` sites fail the request closed on `false`
+ * (before any task side effect has run); the later `a2a.result` site
+ * deliberately does NOT fail closed on `false` (the task has already run by
+ * then -- see the call site's own comment).
+ */
 async function safeAudit(deps: A2aDeps, input: Parameters<AuditStore["append"]>[0]): Promise<boolean> {
   try {
     await deps.audit.append(input);
     return true;
-  } catch {
+  } catch (error) {
+    deps.logger.error(
+      { event: "audit.append_failed", auditEvent: input.event, auditRecord: input, err: error },
+      "best-effort audit append failed; event preserved in this log line",
+    );
     return false;
   }
 }
@@ -226,11 +243,17 @@ async function handleSendMessage(
       status = "failed";
     }
     if (ctx) {
+      // `ctx.finish()` is a non-idempotent audit append (packages/agents/src/
+      // runtime.ts): the orchestrator must call it EXACTLY ONCE per run.
+      // `outcome` stays `undefined` unless `procedure()` returns without
+      // throwing, so the success-path `ctx.finish(outcome)` below is
+      // reached only once, and is deliberately OUTSIDE this try/catch --
+      // mirroring admin-agents.ts's equivalent handler -- so that if IT
+      // itself throws, control does NOT fall into the catch block below and
+      // call ctx.finish() a second time for the same run.
+      let outcome: AgentTaskOutcome | undefined;
       try {
-        const outcome = await procedure(ctx, input);
-        await ctx.finish(outcome);
-        status = outcome.reason === "proposed" ? "completed" : "failed";
-        result = outcome;
+        outcome = await procedure(ctx, input);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         deps.logger.error(
@@ -245,6 +268,11 @@ async function handleSendMessage(
         status = "failed";
         result = { message: "task execution failed" };
       }
+      if (outcome !== undefined) {
+        await ctx.finish(outcome);
+        status = outcome.reason === "proposed" ? "completed" : "failed";
+        result = outcome;
+      }
     }
   }
 
@@ -252,6 +280,15 @@ async function handleSendMessage(
     "INSERT INTO a2a_tasks (id, client_id, skill, status, result) VALUES ($1,$2,$3,$4,$5)",
     [taskId, client.clientId, skill, status, JSON.stringify(result)],
   );
+  // Deliberately best-effort, return value ignored: unlike the two earlier
+  // `a2a.call` appends (which fail closed BEFORE the task runs), the task
+  // has already executed by this point -- side effects like ctx.propose()
+  // may already be committed. Failing the HTTP response here would tell the
+  // caller the task didn't run when it genuinely did, so the real outcome
+  // below is always returned regardless of whether this append lands.
+  // `safeAudit` itself now logs the full event at error level on failure
+  // (see its doc comment), so nothing is silently lost even though the
+  // response doesn't change.
   await safeAudit(deps, {
     event: "a2a.result",
     actor: identity.id,
@@ -268,6 +305,13 @@ async function handleGetTask(params: unknown, id: unknown, client: A2aClientEntr
   const taskId = typeof p.id === "string" ? p.id : undefined;
   if (!taskId) {
     return reply.send(rpcError(id, -32602, "Invalid params: id is required"));
+  }
+  // `a2a_tasks.id` is `uuid` typed -- a non-UUID string reaching Postgres
+  // raises an uncaught "invalid input syntax for type uuid" error, surfacing
+  // as a generic 500 instead of a clean JSON-RPC -32602 (mirrors the
+  // recordId check in agent-tasks.ts's vendorRiskReview procedure).
+  if (!isUuid(taskId)) {
+    return reply.send(rpcError(id, -32602, "Invalid params: id must be a UUID"));
   }
   const res = await deps.db.query("SELECT * FROM a2a_tasks WHERE id = $1 AND client_id = $2", [taskId, client.clientId]);
   const row = res.rows[0];

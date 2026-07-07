@@ -72,6 +72,50 @@ describe("registerMcpServer", () => {
     expect(audit.records[0]).toMatchObject({ event: "mcp.serve_rejected", attributes: { reason: "invalid_token" } });
   });
 
+  it("UNBOUNDED-WRITES FIX: the SAME invalid bearer repeated many times is deduped to one mcp.serve_rejected append (finding unauth-unbounded-audit-writes)", async () => {
+    const audit = createFakeAuditStore();
+    registerMcpServer(app, { capabilities: [readOnlyCapability()], policy: allowAllPolicyEngine(), audit, verifyToken });
+    await app.ready();
+
+    const N = 25;
+    for (let i = 0; i < N; i++) {
+      const res = await postMcp(app, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { bearer: "same-garbage-token" });
+      expect(res.statusCode).toBe(401);
+    }
+    // N identical rejected requests -> exactly ONE durable append, not N.
+    expect(audit.records.filter((r) => r.event === "mcp.serve_rejected")).toHaveLength(1);
+  });
+
+  it("UNBOUNDED-WRITES FIX: many requests with no bearer at all are deduped to one mcp.serve_rejected append (finding unauth-unbounded-audit-writes)", async () => {
+    const audit = createFakeAuditStore();
+    registerMcpServer(app, { capabilities: [readOnlyCapability()], policy: allowAllPolicyEngine(), audit, verifyToken });
+    await app.ready();
+
+    const N = 25;
+    for (let i = 0; i < N; i++) {
+      const res = await postMcp(app, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+      expect(res.statusCode).toBe(401);
+    }
+    expect(audit.records.filter((r) => r.event === "mcp.serve_rejected")).toHaveLength(1);
+  });
+
+  it("UNBOUNDED-WRITES FIX: many DISTINCT bad bearer tokens are capped by the rolling window, not growing linearly with N (finding unauth-unbounded-audit-writes)", async () => {
+    const audit = createFakeAuditStore();
+    registerMcpServer(app, { capabilities: [readOnlyCapability()], policy: allowAllPolicyEngine(), audit, verifyToken });
+    await app.ready();
+
+    const N = 100;
+    for (let i = 0; i < N; i++) {
+      const res = await postMcp(app, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { bearer: `distinct-garbage-${i}` });
+      expect(res.statusCode).toBe(401);
+    }
+    const rejectedRecords = audit.records.filter((r) => r.event === "mcp.serve_rejected");
+    // The default rolling-window cap (20 new distinct rejections per
+    // minute) bounds this well below N, even though every token differs.
+    expect(rejectedRecords.length).toBeLessThan(N);
+    expect(rejectedRecords.length).toBeLessThanOrEqual(20);
+  });
+
   it("initialize with a supported revision succeeds", async () => {
     const audit = createFakeAuditStore();
     registerMcpServer(app, { capabilities: [], policy: allowAllPolicyEngine(), audit, verifyToken });
