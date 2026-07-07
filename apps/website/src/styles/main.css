@@ -1,0 +1,105 @@
+:root {
+  color-scheme: dark;
+  --bg: #0a0e14;
+  --fg: #e2e8f0;
+  --accent: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#network-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+
+#page {
+  position: relative;
+  z-index: 1;
+}
+
+.section {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 1.5rem;
+}
+
+.panel {
+  max-width: 640px;
+  background: rgba(10, 14, 20, 0.72);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.lede {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.roadmap-list li {
+  margin-bottom: 0.75rem;
+}
+
+.roadmap-list li.current {
+  color: var(--accent);
+}
+
+.status-note {
+  font-size: 0.875rem;
+  opacity: 0.75;
+}
+
+.status-section h4 {
+  margin-bottom: 0.25rem;
+  color: var(--accent);
+}
+
+.status-section ul {
+  margin: 0 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.status-shipped::marker {
+  content: "✅ ";
+}
+
+.status-in_progress::marker {
+  content: "🚧 ";
+}
+
+.status-planned::marker {
+  content: "📋 ";
+}
+
+.status-not_planned::marker {
+  content: "❌ ";
+}
+
+/* Reduced-motion / no-WebGL fallback: no fixed canvas, sections read as a plain static document. */
+body.static-fallback #network-canvas {
+  display: none;
+}
+
+body.static-fallback .panel {
+  background: rgba(15, 20, 28, 0.95);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+  }
+}

@@ -6,6 +6,9 @@
 > never claim ahead of that page. A personally sponsored project, built by
 > one human and Claude Code. See [PLAN.md](PLAN.md) for the full build plan.
 
+**[openrupiv.dev →](https://rupivbluegreen.github.io/openrupiv/)** — the
+project's landing page (built with this same repo, `apps/website`).
+
 **An Apache-2.0, enterprise-ready, agent-native app development platform where
 the enterprise features are the free features.**
 
