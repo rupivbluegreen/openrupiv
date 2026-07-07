@@ -1,19 +1,11 @@
 import "./styles/main.css";
 import { NetworkScene, isWebGLAvailable } from "./scene/NetworkScene";
-import type { SectionId } from "./scene/layouts";
-import { initScrollTimeline, type SectionElement } from "./scroll/scrollTimeline";
+import { initScrollTimeline } from "./scroll/scrollTimeline";
+import { collectSectionElements } from "./scroll/collectSections";
 import { renderStatus } from "./content/renderStatus";
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-/** Section elements in document order, keyed by their `id` attribute (a valid SectionId per the HTML structure). */
-function collectSectionElements(): SectionElement[] {
-  return Array.from(document.querySelectorAll<HTMLElement>(".section")).map((element) => ({
-    id: element.id as SectionId,
-    element,
-  }));
 }
 
 function main(): void {

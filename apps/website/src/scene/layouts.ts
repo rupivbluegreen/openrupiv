@@ -7,6 +7,29 @@ export type SectionId =
   | "roadmap"
   | "status";
 
+const ALL_SECTION_IDS: readonly SectionId[] = [
+  "hero",
+  "pillar-sso",
+  "pillar-git",
+  "pillar-compliance",
+  "pillar-agents",
+  "roadmap",
+  "status",
+];
+
+/**
+ * Runtime guard for `SectionId`. `index.html`'s section ids and this
+ * union are both hand-maintained; if they ever drift (a section renamed
+ * or added/removed on one side but not the other), an unrecognized string
+ * must never reach `computeLayout` — its `PILLAR_CENTERS[section]!`
+ * non-null assertion would throw an uncaught `TypeError` deep in the
+ * render loop with no useful error message. Callers should skip elements
+ * that fail this check rather than force-casting them.
+ */
+export function isSectionId(value: string): value is SectionId {
+  return (ALL_SECTION_IDS as readonly string[]).includes(value);
+}
+
 export interface Vec3Like {
   x: number;
   y: number;
