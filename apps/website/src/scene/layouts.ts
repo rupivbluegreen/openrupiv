@@ -41,7 +41,11 @@ const PILLAR_CENTERS: Record<string, Vec3Like> = {
   "pillar-agents": { x: 3, y: -1, z: 0 },
 };
 
-/** Nodes belonging to this pillar arrange in a ring around `center`; other nodes drift to a faint outer sphere. */
+/**
+ * Nodes belonging to this pillar arrange in a ring around `center`; other nodes fall back to a
+ * Fibonacci-sphere position (unique per index, never collides) translated by `center`, so each
+ * pillar's non-member nodes drift to a distinct faint outer sphere around that pillar's own center.
+ */
 function clusterLayout(
   index: number,
   total: number,
@@ -51,11 +55,12 @@ function clusterLayout(
   fallbackRadius: number,
 ): Vec3Like {
   const memberPos = memberIndices.indexOf(index);
-  const angle = GOLDEN_ANGLE * (memberPos >= 0 ? memberPos : index % Math.max(1, memberIndices.length));
-  const isMember = memberPos >= 0;
-  const ringR = isMember
-    ? clusterRadius * (0.3 + 0.7 * (memberPos / Math.max(1, memberIndices.length - 1)))
-    : fallbackRadius;
+  if (memberPos === -1) {
+    const fallback = fibonacciSphere(index, total, fallbackRadius);
+    return { x: center.x + fallback.x, y: center.y + fallback.y, z: center.z + fallback.z };
+  }
+  const angle = GOLDEN_ANGLE * memberPos;
+  const ringR = clusterRadius * (0.3 + 0.7 * (memberPos / Math.max(1, memberIndices.length - 1)));
   return {
     x: center.x + Math.cos(angle) * ringR,
     y: center.y + Math.sin(angle) * ringR * 0.6,

@@ -27,6 +27,23 @@ describe("computeLayout", () => {
     expect(unique.size).toBe(4);
   });
 
+  it("non-member fallback positions do not collide across indices sharing the same residue", () => {
+    // pillar-compliance has 12 members (indices i where i % 4 === 2); indices 0 and 12 are both
+    // non-members and previously shared a modulo-12 residue, colliding at the exact same position.
+    const a = computeLayout("pillar-compliance", 0, TOTAL);
+    const b = computeLayout("pillar-compliance", 12, TOTAL);
+    expect(a).not.toEqual(b);
+  });
+
+  it("non-member fallback positions differ across pillars for the same node index (original bug fixed)", () => {
+    // Index 5 is a non-member of both pillar-sso (indices i % 4 === 0) and pillar-compliance
+    // (indices i % 4 === 2), so both fall back — but their distinct centers must still yield
+    // distinct fallback positions.
+    const ssoFallback = computeLayout("pillar-sso", 5, TOTAL);
+    const complianceFallback = computeLayout("pillar-compliance", 5, TOTAL);
+    expect(ssoFallback).not.toEqual(complianceFallback);
+  });
+
   it("roadmap layout places earlier-phase nodes at a smaller x than later-phase nodes", () => {
     const phase0X = computeLayout("roadmap", 0, TOTAL).x;
     const phase5X = computeLayout("roadmap", 5, TOTAL).x;
