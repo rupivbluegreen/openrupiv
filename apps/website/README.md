@@ -11,8 +11,8 @@ touches this package.
 - `pnpm --filter @openrupiv/website build` — regenerates `public/status.json`
   from the repo root's `ENTERPRISE_READINESS.md` (see `scripts/build-status.ts`),
   then builds the static site into `dist/`.
-- `pnpm --filter @openrupiv/website test` — runs the unit tests for the two
-  pure logic modules (`src/scene/layouts.ts`, `src/scroll/sectionMapping.ts`)
+- `pnpm --filter @openrupiv/website test` — runs the unit tests for the
+  logic modules (`src/scene/layouts.ts`, `src/scroll/collectSections.ts`)
   and the status-table parser (`scripts/build-status.ts`). There is no
   broader unit-test suite for the Three.js rendering/GSAP wiring itself —
   those are verified by manual browser QA (scroll through the built site;
