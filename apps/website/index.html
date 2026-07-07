@@ -4,11 +4,95 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>openRupiv — the enterprise features are the free features</title>
+    <link rel="stylesheet" href="/src/styles/main.css" />
   </head>
   <body>
-    <div id="page">
-      <h1>openRupiv</h1>
-    </div>
+    <canvas id="network-canvas"></canvas>
+    <main id="page">
+      <section id="hero" class="section">
+        <div class="panel">
+          <h1>openRupiv</h1>
+          <p class="lede">
+            An Apache-2.0, enterprise-ready, agent-native app development
+            platform where the enterprise features are the free features.
+          </p>
+          <p>
+            Every commercial app platform gates SSO, SCIM, RBAC, audit logs,
+            HA, and compliance reporting behind enterprise tiers. This
+            project doesn't.
+          </p>
+        </div>
+      </section>
+
+      <section id="pillar-sso" class="section">
+        <div class="panel">
+          <h2>Zero SSO tax</h2>
+          <p>
+            SAML, OIDC, SCIM, RBAC/ABAC, audit logs, HA, and an air-gap
+            installer — all in the Apache-2.0 core. Not an "enterprise
+            edition."
+          </p>
+        </div>
+      </section>
+
+      <section id="pillar-git" class="section">
+        <div class="panel">
+          <h2>Apps are Git artifacts, not database rows</h2>
+          <p>
+            Describe an app in natural language, get a reviewable
+            declarative spec plus generated code in a Git repo. Change
+            management is a pull request. Delete the platform and your apps
+            are still readable code.
+          </p>
+        </div>
+      </section>
+
+      <section id="pillar-compliance" class="section">
+        <div class="panel">
+          <h2>Compliance evidence as a byproduct</h2>
+          <p>
+            Hash-chained audit log, SIEM export, and generated EU AI Act /
+            GDPR artifacts — emitted from runtime metadata, not assembled by
+            hand.
+          </p>
+        </div>
+      </section>
+
+      <section id="pillar-agents" class="section">
+        <div class="panel">
+          <h2>Agent-native and interop-native</h2>
+          <p>
+            Agents are governed workers with identity, policy, and
+            human-in-the-loop gates. MCP client + server and A2A from v1.
+          </p>
+        </div>
+      </section>
+
+      <section id="roadmap" class="section">
+        <div class="panel">
+          <h2>Roadmap</h2>
+          <ol class="roadmap-list">
+            <li><strong>Phase 0 — Pre-flight.</strong> Name, license, repo scaffold.</li>
+            <li><strong>Phase 1 — Core.</strong> App spec, CLI + generator, TypeScript runtime, OIDC from day one.</li>
+            <li class="current"><strong>Phase 2 — Agents + policy + audit (in progress).</strong> Agent runtime, MCP client/server, A2A, OPA policy engine, hash-chained audit log, RBAC, HITL gates.</li>
+            <li><strong>Phase 3 — Enterprise identity &amp; ops.</strong> SAML, SCIM, Helm/HA, OTel, secrets, sandbox hardening.</li>
+            <li><strong>Phase 4 — Compliance packs.</strong> GDPR + EU AI Act packs, Annex IV / RoPA / DPIA generators.</li>
+            <li><strong>Phase 5 — Ecosystem.</strong> Migration tooling, community connectors.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section id="status" class="section">
+        <div class="panel">
+          <h2>What's real today</h2>
+          <p class="status-note">
+            Generated from this project's own honest capability ledger —
+            never claimed ahead of it.
+          </p>
+          <div id="status-content"></div>
+        </div>
+      </section>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
