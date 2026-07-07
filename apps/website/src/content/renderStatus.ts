@@ -47,7 +47,9 @@ export async function renderStatus(containerEl: HTMLElement): Promise<void> {
             ${sectionItems
               .map(
                 (item) =>
-                  `<li class="status-${item.level}"><strong>${escapeHtml(item.requirement)}:</strong> ${LEVEL_LABEL[item.level]}</li>`,
+                  `<li class="status-${item.level}"><strong>${escapeHtml(item.requirement)}:</strong> ${LEVEL_LABEL[item.level]}${
+                    item.detail ? ` — ${escapeHtml(item.detail)}` : ""
+                  }</li>`,
               )
               .join("")}
           </ul>
