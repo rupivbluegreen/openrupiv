@@ -1,8 +1,18 @@
 :root {
-  color-scheme: dark;
-  --bg: #0a0e14;
-  --fg: #e2e8f0;
-  --accent: #38bdf8;
+  color-scheme: light;
+  --bg: #fdf6ec;
+  --fg: #2d2a26;
+  --fg-soft: #6b6459;
+  --accent: #e8542f;
+  --radius-lg: 28px;
+  --radius-md: 16px;
+  --radius-pill: 999px;
+  --shadow-soft: 0 8px 24px rgba(45, 42, 38, 0.1);
+
+  --gradient-1: linear-gradient(135deg, #ff9a76 0%, #ffce54 100%);
+  --gradient-2: linear-gradient(135deg, #4fd1c5 0%, #a3e635 100%);
+  --gradient-3: linear-gradient(135deg, #a78bfa 0%, #f472b6 100%);
+  --gradient-4: linear-gradient(135deg, #60c8ff 0%, #34d399 100%);
 }
 
 * {
@@ -14,18 +24,11 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-}
-
-#network-canvas {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
+  font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
 
 #page {
   position: relative;
-  z-index: 1;
 }
 
 .section {
@@ -34,33 +37,139 @@ body {
   align-items: center;
   justify-content: center;
   padding: 4rem 1.5rem;
+  position: relative;
+  overflow: hidden;
 }
 
 .panel {
   max-width: 640px;
-  background: rgba(10, 14, 20, 0.72);
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(6px);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  border-radius: 12px;
-  padding: 2rem;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  padding: 2.5rem;
+}
+
+.hero-section .panel {
+  background: rgba(255, 255, 255, 0.7);
+  text-align: center;
 }
 
 .lede {
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.roadmap-list li {
-  margin-bottom: 0.75rem;
+/* Pain-point sections: full-viewport gradient background, blob accent, icon */
+.pain-section-1 { background: var(--gradient-1); }
+.pain-section-2 { background: var(--gradient-2); }
+.pain-section-3 { background: var(--gradient-3); }
+.pain-section-4 { background: var(--gradient-4); }
+
+.pain-section::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: 480px;
+  height: 480px;
+  border-radius: 42% 58% 65% 35% / 45% 45% 55% 55%;
+  background: rgba(255, 255, 255, 0.18);
+  top: -140px;
+  right: -140px;
 }
 
-.roadmap-list li.current {
+.pain-section::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  width: 320px;
+  height: 320px;
+  border-radius: 58% 42% 35% 65% / 55% 55% 45% 45%;
+  background: rgba(255, 255, 255, 0.14);
+  bottom: -100px;
+  left: -100px;
+}
+
+.pain-icon {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 1rem;
+}
+
+.pain-section .panel {
+  background: rgba(255, 255, 255, 0.28);
+  color: #1f1c19;
+}
+
+/* Reveal-on-scroll (revealOnScroll.ts) */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Roadmap: rounded chip grid */
+.roadmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.roadmap-chip {
+  background: #fff;
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.roadmap-chip p {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+  color: var(--fg-soft);
+}
+
+.chip-label {
+  display: inline-block;
+  background: var(--bg);
   color: var(--accent);
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-pill);
 }
 
+.roadmap-chip-current {
+  background: var(--accent);
+}
+
+.roadmap-chip-current .chip-label {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.roadmap-chip-current p {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* Status section: reskin the existing renderStatus.ts markup as rounded cards */
 .status-note {
   font-size: 0.875rem;
   opacity: 0.75;
+}
+
+.status-section {
+  background: #fff;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .status-section h4 {
@@ -69,7 +178,7 @@ body {
 }
 
 .status-section ul {
-  margin: 0 0 1rem;
+  margin: 0;
   padding-left: 1.25rem;
 }
 
@@ -89,17 +198,19 @@ body {
   content: "❌ ";
 }
 
-/* Reduced-motion / no-WebGL fallback: no fixed canvas, sections read as a plain static document. */
-body.static-fallback #network-canvas {
-  display: none;
-}
-
-body.static-fallback .panel {
-  background: rgba(15, 20, 28, 0.95);
+@media (max-width: 640px) {
+  .pain-section::before,
+  .pain-section::after {
+    display: none;
+  }
+  .panel {
+    padding: 1.75rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
   }
 }
