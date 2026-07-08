@@ -119,6 +119,31 @@ body {
   transform: translateY(0);
 }
 
+/* FAQ: question/answer pairs, styled as rounded cards matching the roadmap chips */
+.faq-list {
+  margin: 1.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.faq-item {
+  background: #fff;
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.faq-item dt {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.faq-item dd {
+  margin: 0.5rem 0 0;
+  color: var(--fg-soft);
+}
+
 /* Roadmap: rounded chip grid */
 .roadmap-grid {
   display: grid;

@@ -114,11 +114,11 @@ SAML + SCIM; Helm chart + HA reference; OTel; backup/restore; Vault/KMS secrets;
 **Pre-agreed cut line if behind:** SCIM and Terraform modules slip first; SAML and Helm never do. A slip is a controlled decision made at the M5 checkpoint, not a scramble.
 
 ### Phase 4 — Compliance packs (M7–M8)
-GDPR + EU AI Act packs: Rego bundles, evidence schemas, Annex IV tech-doc generator, RoPA/DPIA prefills, agent/model registry with risk classes; eval harness as CI gate; reference architectures published.
+GDPR + EU AI Act packs: Rego bundles, evidence schemas, Annex IV tech-doc generator, RoPA/DPIA prefills, agent/model registry with risk classes; eval harness as CI gate; reference architectures published; **per-app identification and compliance verification** — one exportable record per generated app bundling provenance (spec hash, generation lineage, approver history), risk classification, and compliance-pack status, so an app's compliance posture is checkable at a glance rather than reconstructed by hand.
 **Milestone:** v0.7. First public case study. **Showcase templates ship: the demo apps are themselves compliance tools** (DORA-style ICT register, RoPA manager, AI system inventory) — evaluators in regulated orgs get standalone value on day one, built on the platform they're evaluating.
 
 ### Phase 5 — Ecosystem (M9–M10)
-Connector SDK stable + ~20 connectors; community template gallery; migration guides (Retool/n8n/Power Apps/Dify); Claude Code plugin for platform extension; **external security audit**; DORA + NIS2 packs.
+Connector SDK stable + ~20 connectors; community template gallery; migration guides (Retool/n8n/Power Apps/Dify); Claude Code plugin for platform extension; **external security audit**; DORA + NIS2 packs; **showcase: a self-healing operations agent** — built entirely on the existing `propose()`/HITL primitive and audit trail (no new capability class), it triages platform issues, proposes a fix, re-verifies, then requests human approval, demonstrating governed autonomy as a real, reference-implementable capability.
 **Milestone:** v0.9. Case studies #2–3. Conference talks.
 
 ### Phase 6 — v1.0 GA (M11–M12)
