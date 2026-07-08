@@ -103,8 +103,12 @@ body {
   color: #1f1c19;
 }
 
-/* Reveal-on-scroll (revealOnScroll.ts) */
-[data-reveal] {
+/* Reveal-on-scroll (revealOnScroll.ts)
+   Scoped under .js (added by main.ts as the first thing it does) so that
+   content is only ever hidden once JS has actually started running. With no
+   JS, JS disabled, or a failed script load, <html> never gets the .js class
+   and [data-reveal] elements stay at their natural, fully visible state. */
+.js [data-reveal] {
   opacity: 0;
   transform: translateY(12px);
   transition: opacity 0.4s ease-out, transform 0.4s ease-out;
@@ -196,6 +200,43 @@ body {
 
 .status-not_planned::marker {
   content: "❌ ";
+}
+
+/* Footer: understated, no reveal treatment — always visible */
+.site-footer {
+  padding: 2rem 1.5rem 3rem;
+  text-align: center;
+}
+
+.footer-links {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 0.25rem;
+  margin: 0;
+  padding: 0;
+}
+
+.footer-links li + li::before {
+  content: "·";
+  color: var(--fg-soft);
+  margin: 0 0.5rem;
+}
+
+.footer-links a {
+  color: var(--fg-soft);
+  font-size: 0.875rem;
+  text-decoration: none;
+  border-radius: var(--radius-pill);
+  padding: 0.25rem 0.5rem;
+  transition: color 0.2s ease-out, background 0.2s ease-out;
+}
+
+.footer-links a:hover,
+.footer-links a:focus-visible {
+  color: var(--accent);
+  background: rgba(232, 84, 47, 0.1);
 }
 
 @media (max-width: 640px) {
