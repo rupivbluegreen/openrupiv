@@ -135,8 +135,9 @@ illustrative mockup replacing/supplementing the icon:
 - **Compliance** (`pillar-compliance`): a small mock card — `Audit log`
   `Policy checks` `SIEM export` as pill badges — again purely
   illustrative, no status markers.
-  New copy: *"A hash-chained audit log and policy-checked access ship
-  today. Generated EU AI Act / GDPR artifacts are on the roadmap, built
+  New copy: *"A hash-chained, tamper-evident audit log and deny-by-default
+  policy checks are wired into the runtime today (pending final maintainer
+  sign-off). Generated EU AI Act / GDPR artifacts are on the roadmap, built
   from the same runtime metadata, not assembled by hand."*
 - **Agents** (`pillar-agents`): a small mock "proposal card" — a
   rounded card reading `Agent proposal — vendor onboarding` /

@@ -111,4 +111,30 @@ describe("renderStatus", () => {
     expect(container.querySelector(".status-count-planned")).toBeNull();
     expect(container.querySelector(".status-count-not_planned")).toBeNull();
   });
+
+  it("count pills always sum to the number of detail-list items rendered for that category", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse([
+          { section: "A", requirement: "RBAC", level: "shipped", detail: "" },
+          { section: "A", requirement: "OIDC SSO", level: "shipped", detail: "" },
+          { section: "A", requirement: "SCIM", level: "in_progress", detail: "" },
+          { section: "A", requirement: "SAML SSO", level: "planned", detail: "M5" },
+          { section: "A", requirement: "HA", level: "planned", detail: "M6" },
+          { section: "A", requirement: "Audit export", level: "planned", detail: "" },
+        ]),
+      ),
+    );
+    const container = document.createElement("div");
+    await renderStatus(container);
+
+    const detailItemCount = container.querySelectorAll(".status-detail-list li").length;
+    const countPillSum = [...container.querySelectorAll(".status-count")]
+      .map((el) => parseInt(el.textContent ?? "", 10))
+      .reduce((sum, n) => sum + n, 0);
+
+    expect(detailItemCount).toBe(6);
+    expect(countPillSum).toBe(detailItemCount);
+  });
 });
