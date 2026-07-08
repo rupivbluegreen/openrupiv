@@ -89,6 +89,54 @@
         </div>
       </section>
 
+      <section id="faq" class="section" data-reveal>
+        <div class="panel">
+          <h2>What people ask us first</h2>
+          <dl class="faq-list">
+            <div class="faq-item">
+              <dt>Where does our data live?</dt>
+              <dd>
+                Wherever you run it. openRupiv is self-hosted — apps,
+                database, and the audit trail all live on your
+                infrastructure. There's no SaaS backend of ours in the loop.
+              </dd>
+            </div>
+            <div class="faq-item">
+              <dt>Who can see what?</dt>
+              <dd>
+                Every read and write is policy-checked against a
+                deny-by-default RBAC/ABAC engine before it happens, and the
+                decision is logged — not just the action.
+              </dd>
+            </div>
+            <div class="faq-item">
+              <dt>What if something gets deleted or edited after the fact?</dt>
+              <dd>
+                The audit log is hash-chained — tamper-evident by
+                construction, not by promise. If a record's hash doesn't
+                match, that's detectable, not deniable.
+              </dd>
+            </div>
+            <div class="faq-item">
+              <dt>Can an agent take action without a human signing off?</dt>
+              <dd>
+                No. Agents can only propose — every state-changing action
+                still requires human approval through the same gates a
+                person would use.
+              </dd>
+            </div>
+            <div class="faq-item">
+              <dt>What happens if we stop using openRupiv?</dt>
+              <dd>
+                Nothing dramatic — it's Apache-2.0 and apps are Git-native: a
+                spec plus deterministically-generated code sitting in your
+                own repo. Uninstall the runtime and the code still runs.
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
       <section id="roadmap" class="section" data-reveal>
         <div class="panel">
           <h2>Roadmap</h2>
@@ -111,11 +159,20 @@
             </div>
             <div class="roadmap-chip">
               <span class="chip-label">Phase 4</span>
-              <p>Compliance packs — GDPR + EU AI Act packs, Annex IV / RoPA / DPIA generators.</p>
+              <p>
+                Compliance packs — GDPR + EU AI Act packs, Annex IV / RoPA /
+                DPIA generators, per-app identification and compliance
+                verification.
+              </p>
             </div>
             <div class="roadmap-chip">
               <span class="chip-label">Phase 5</span>
-              <p>Ecosystem — migration tooling, community connectors.</p>
+              <p>
+                Ecosystem — Postgres, REST/OpenAPI, webhooks,
+                S3-compatible storage, and SMTP connectors (any MCP server
+                works too), migration tooling, and a showcase self-healing
+                operations agent built on the existing propose()/HITL gate.
+              </p>
             </div>
           </div>
         </div>
