@@ -15,20 +15,6 @@ const ALLOWED = new Set([
   "Unlicense",
 ]);
 
-// Named, version-pinned exceptions — not a blanket license allowance.
-// Each entry is a maintainer sign-off for one specific package's license
-// text; a different package under the same license string still fails.
-// Extending this map is exactly as reviewable as extending ALLOWED.
-//
-// gsap: apps/website's scroll animation depends on gsap + ScrollTrigger.
-// GSAP's "Standard 'no charge' license" isn't OSI-approved, but it does
-// permit free use for a public site like this one. Signed off 2026-07-07
-// for apps/website's use; re-review if another package picks up gsap or if
-// its usage here changes (e.g. redistribution, a paid/hosted product).
-const EXCEPTIONS = new Map([
-  ["gsap", "Standard 'no charge' license: https://gsap.com/standard-license."],
-]);
-
 let raw;
 try {
   raw = execFileSync("pnpm", ["licenses", "list", "--json", "--prod"], {
@@ -57,7 +43,6 @@ const violations = [];
 for (const [license, pkgs] of Object.entries(report)) {
   if (ALLOWED.has(license)) continue;
   for (const pkg of pkgs) {
-    if (EXCEPTIONS.get(pkg.name) === license) continue;
     violations.push(`${pkg.name}@${(pkg.versions ?? []).join(",")} — ${license}`);
   }
 }

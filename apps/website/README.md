@@ -1,9 +1,12 @@
 # @openrupiv/website
 
-The public marketing/landing page for openRupiv — a scroll-driven static
-site (Vite + TypeScript + Three.js + GSAP ScrollTrigger), deployed to GitHub
-Pages by `.github/workflows/deploy-pages.yml` on every push to `main` that
-touches this package.
+The public marketing/landing page for openRupiv — a static, dependency-free
+site (Vite + TypeScript only) with a warm, rounded, pain-point-led design.
+Sections fade/slide into view via `src/scroll/revealOnScroll.ts`, a small
+native `IntersectionObserver` wrapper with no external dependencies (no
+Three.js, no GSAP, no canvas). It's deployed to GitHub Pages by
+`.github/workflows/deploy-pages.yml` on every push to `main` that touches
+this package.
 
 ## Commands
 
@@ -12,12 +15,13 @@ touches this package.
   from the repo root's `ENTERPRISE_READINESS.md` (see `scripts/build-status.ts`),
   then builds the static site into `dist/`.
 - `pnpm --filter @openrupiv/website test` — runs the unit tests for the
-  logic modules (`src/scene/layouts.ts`, `src/scroll/collectSections.ts`)
-  and the status-table parser (`scripts/build-status.ts`). There is no
-  broader unit-test suite for the Three.js rendering/GSAP wiring itself —
-  those are verified by manual browser QA (scroll through the built site;
-  toggle OS-level "reduce motion"; confirm the animation reconfigures at
-  each section).
+  logic modules (`src/scroll/revealOnScroll.ts`) and the content/status
+  parsers (`src/content/renderStatus.ts`, `scripts/build-status.ts`). The
+  reveal utility is fully unit-testable (it's plain DOM + IntersectionObserver
+  code with injectable dependencies for tests), but final visual polish is
+  still worth a quick manual browser pass (scroll through the built site;
+  toggle OS-level "reduce motion"; confirm sections appear immediately with
+  it enabled).
 
 ## Honesty constraint
 
