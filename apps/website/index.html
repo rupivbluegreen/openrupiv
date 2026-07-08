@@ -10,42 +10,47 @@
     <main id="page">
       <section id="hero" class="section hero-section" data-reveal>
         <div class="panel">
+          <div class="prompt-mock">
+            <p class="prompt-mock-line">
+              <span class="prompt-mock-label">You</span>
+              describe an approval workflow with 4-eyes review
+            </p>
+            <p class="prompt-mock-line prompt-mock-result">
+              <span class="prompt-mock-label">openRupiv</span>
+              spec.json + migration + tests, committed
+            </p>
+          </div>
           <h1>openRupiv</h1>
           <p class="lede">
             An Apache-2.0, enterprise-ready, agent-native app development
             platform where the enterprise features are the free features.
           </p>
-          <p>
-            Built to be the app platform you'd actually enjoy trusting with
-            your compliance requirements.
-          </p>
+          <div class="hero-cta">
+            <a class="btn-primary" href="https://github.com/rupivbluegreen/openrupiv#quickstart">Get started</a>
+            <a class="btn-secondary" href="#status">See what's shipped today &rarr;</a>
+          </div>
         </div>
       </section>
 
-      <section id="pillar-sso" class="section pain-section pain-section-1" data-reveal>
+      <section id="pillar-sso" class="section pain-section" data-reveal>
         <div class="panel">
-          <svg class="pain-icon" viewBox="0 0 64 64" aria-hidden="true">
-            <path d="M32 6 L54 14 V30 C54 46 44 56 32 60 C20 56 10 46 10 30 V14 Z" fill="#fff" fill-opacity="0.92"/>
-            <path d="M22 32 L29 39 L43 24" stroke="#e8542f" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-          </svg>
           <h2>Sick of paying an enterprise tax for SSO?</h2>
           <p>
-            SAML, OIDC, SCIM, RBAC/ABAC, audit logs, HA, and an air-gap
-            installer — all in the Apache-2.0 core. Not an "enterprise
-            edition."
+            OIDC-based SSO ships today; SAML, SCIM, and HA are next on the
+            roadmap — all landing in the same Apache-2.0 core, never an
+            "enterprise edition."
           </p>
+          <div class="mock-badges">
+            <span class="mock-badge">OIDC</span>
+            <span class="mock-badge">SAML</span>
+            <span class="mock-badge">SCIM</span>
+            <span class="mock-badge">RBAC/ABAC</span>
+          </div>
         </div>
       </section>
 
-      <section id="pillar-git" class="section pain-section pain-section-2" data-reveal>
+      <section id="pillar-git" class="section pain-section" data-reveal>
         <div class="panel">
-          <svg class="pain-icon" viewBox="0 0 64 64" aria-hidden="true">
-            <circle cx="16" cy="14" r="7" fill="#fff" fill-opacity="0.92"/>
-            <circle cx="16" cy="50" r="7" fill="#fff" fill-opacity="0.92"/>
-            <circle cx="48" cy="32" r="7" fill="#fff" fill-opacity="0.92"/>
-            <path d="M16 21 V43" stroke="#0d9488" stroke-width="5" stroke-linecap="round"/>
-            <path d="M16 30 C16 30 30 30 30 30 C39 30 40 31 41 32" stroke="#0d9488" stroke-width="5" stroke-linecap="round" fill="none"/>
-          </svg>
           <h2>Tired of your app's real behavior living only in someone's head?</h2>
           <p>
             Describe an app in natural language, get a reviewable
@@ -53,121 +58,138 @@
             management is a pull request. Delete the platform and your apps
             are still readable code.
           </p>
+          <div class="mock-code-split">
+            <div class="mock-code-col">
+              <span class="mock-code-label">spec.json</span>
+              <ul class="mock-file-list">
+                <li>entities</li>
+                <li>workflows</li>
+                <li>roles</li>
+              </ul>
+            </div>
+            <div class="mock-code-col">
+              <span class="mock-code-label">generated/</span>
+              <ul class="mock-file-list">
+                <li>migration.sql</li>
+                <li>runtime.ts</li>
+                <li>spec.test.ts</li>
+              </ul>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section id="pillar-compliance" class="section pain-section pain-section-3" data-reveal>
+      <section id="pillar-compliance" class="section pain-section" data-reveal>
         <div class="panel">
-          <svg class="pain-icon" viewBox="0 0 64 64" aria-hidden="true">
-            <circle cx="32" cy="26" r="18" fill="#fff" fill-opacity="0.92"/>
-            <path d="M24 26 L30 32 L41 19" stroke="#9333ea" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-            <path d="M22 40 L18 58 L32 50 L46 58 L42 40" fill="#fff" fill-opacity="0.92"/>
-          </svg>
           <h2>Compliance evidence shouldn't be a fire drill</h2>
           <p>
-            Hash-chained audit log, SIEM export, and generated EU AI Act /
-            GDPR artifacts — emitted from runtime metadata, not assembled by
-            hand.
+            A hash-chained, tamper-evident audit log and deny-by-default
+            policy checks are wired into the runtime today (pending final
+            maintainer sign-off). Generated EU AI Act / GDPR artifacts are on
+            the roadmap, built from the same runtime metadata, not assembled
+            by hand.
           </p>
+          <div class="mock-badges">
+            <span class="mock-badge">Audit log</span>
+            <span class="mock-badge">Policy checks</span>
+            <span class="mock-badge">SIEM export</span>
+          </div>
         </div>
       </section>
 
-      <section id="pillar-agents" class="section pain-section pain-section-4" data-reveal>
+      <section id="pillar-agents" class="section pain-section" data-reveal>
         <div class="panel">
-          <svg class="pain-icon" viewBox="0 0 64 64" aria-hidden="true">
-            <rect x="16" y="20" width="32" height="26" rx="10" fill="#fff" fill-opacity="0.92"/>
-            <circle cx="26" cy="33" r="4" fill="#0284c7"/>
-            <circle cx="38" cy="33" r="4" fill="#0284c7"/>
-            <path d="M32 20 V10" stroke="#fff" stroke-opacity="0.92" stroke-width="5" stroke-linecap="round"/>
-            <circle cx="32" cy="7" r="4" fill="#fff" fill-opacity="0.92"/>
-          </svg>
           <h2>Want AI agents that actually ask permission first?</h2>
           <p>
             Agents are governed workers with identity, policy, and
             human-in-the-loop gates. MCP client + server and A2A from v1.
           </p>
+          <div class="mock-proposal-card">
+            <span class="mock-proposal-title">Agent proposal — vendor onboarding</span>
+            <span class="mock-proposal-status">Awaiting human approval</span>
+          </div>
         </div>
       </section>
 
       <section id="faq" class="section" data-reveal>
         <div class="panel">
           <h2>What people ask us first</h2>
-          <dl class="faq-list">
-            <div class="faq-item">
-              <dt>Where does our data live?</dt>
-              <dd>
+          <div class="faq-list">
+            <details class="faq-item">
+              <summary>Where does our data live?</summary>
+              <p>
                 Wherever you run it. openRupiv is self-hosted — apps,
                 database, and the audit trail all live on your
                 infrastructure. There's no SaaS backend of ours in the loop.
-              </dd>
-            </div>
-            <div class="faq-item">
-              <dt>Who can see what?</dt>
-              <dd>
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Who can see what?</summary>
+              <p>
                 Every read and write is policy-checked against a
                 deny-by-default RBAC/ABAC engine before it happens, and the
                 decision is logged — not just the action.
-              </dd>
-            </div>
-            <div class="faq-item">
-              <dt>What if something gets deleted or edited after the fact?</dt>
-              <dd>
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What if something gets deleted or edited after the fact?</summary>
+              <p>
                 The audit log is hash-chained — tamper-evident by
                 construction, not by promise. If a record's hash doesn't
                 match, that's detectable, not deniable.
-              </dd>
-            </div>
-            <div class="faq-item">
-              <dt>Can an agent take action without a human signing off?</dt>
-              <dd>
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>Can an agent take action without a human signing off?</summary>
+              <p>
                 No. Agents can only propose — every state-changing action
                 still requires human approval through the same gates a
                 person would use.
-              </dd>
-            </div>
-            <div class="faq-item">
-              <dt>What happens if we stop using openRupiv?</dt>
-              <dd>
+              </p>
+            </details>
+            <details class="faq-item">
+              <summary>What happens if we stop using openRupiv?</summary>
+              <p>
                 Nothing dramatic — it's Apache-2.0 and apps are Git-native: a
                 spec plus deterministically-generated code sitting in your
                 own repo. Uninstall the runtime and the code still runs.
-              </dd>
-            </div>
-          </dl>
+              </p>
+            </details>
+          </div>
         </div>
       </section>
 
       <section id="roadmap" class="section" data-reveal>
         <div class="panel">
           <h2>Roadmap</h2>
-          <div class="roadmap-grid">
-            <div class="roadmap-chip">
-              <span class="chip-label">Phase 0</span>
-              <p>Pre-flight — name, license, repo scaffold.</p>
+          <div class="phase-pipeline">
+            <div class="phase-step">
+              <span class="phase-pill">Phase 0</span>
+              <p class="phase-caption">Pre-flight — name, license, repo scaffold.</p>
             </div>
-            <div class="roadmap-chip">
-              <span class="chip-label">Phase 1</span>
-              <p>Core — app spec, CLI + generator, TypeScript runtime, OIDC from day one.</p>
+            <div class="phase-step">
+              <span class="phase-pill">Phase 1</span>
+              <p class="phase-caption">Core — app spec, CLI + generator, TypeScript runtime, OIDC from day one.</p>
             </div>
-            <div class="roadmap-chip roadmap-chip-current">
-              <span class="chip-label">Phase 2 — in progress</span>
-              <p>Agents + policy + audit — agent runtime, MCP client/server, A2A, OPA policy engine, hash-chained audit log, RBAC, HITL gates.</p>
+            <div class="phase-step phase-step-current">
+              <span class="phase-pill phase-pill-current">Phase 2 — in progress</span>
+              <p class="phase-caption">Agents + policy + audit — agent runtime, MCP client/server, A2A, OPA policy engine, hash-chained audit log, RBAC, HITL gates.</p>
             </div>
-            <div class="roadmap-chip">
-              <span class="chip-label">Phase 3</span>
-              <p>Enterprise identity &amp; ops — SAML, SCIM, Helm/HA, OTel, secrets, sandbox hardening.</p>
+            <div class="phase-step">
+              <span class="phase-pill">Phase 3</span>
+              <p class="phase-caption">Enterprise identity &amp; ops — SAML, SCIM, Helm/HA, OTel, secrets, sandbox hardening.</p>
             </div>
-            <div class="roadmap-chip">
-              <span class="chip-label">Phase 4</span>
-              <p>
+            <div class="phase-step">
+              <span class="phase-pill">Phase 4</span>
+              <p class="phase-caption">
                 Compliance packs — GDPR + EU AI Act packs, Annex IV / RoPA /
                 DPIA generators, per-app identification and compliance
                 verification.
               </p>
             </div>
-            <div class="roadmap-chip">
-              <span class="chip-label">Phase 5</span>
-              <p>
+            <div class="phase-step">
+              <span class="phase-pill">Phase 5</span>
+              <p class="phase-caption">
                 Ecosystem — Postgres, REST/OpenAPI, webhooks,
                 S3-compatible storage, and SMTP connectors (any MCP server
                 works too), migration tooling, and a showcase self-healing
@@ -183,7 +205,7 @@
           <h2>What's real today</h2>
           <p class="status-note">
             Generated from this project's own honest capability ledger —
-            never claimed ahead of it.
+            never claimed ahead of it. Click a category for the full detail.
           </p>
           <div id="status-content"></div>
         </div>

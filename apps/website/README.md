@@ -1,8 +1,10 @@
 # @openrupiv/website
 
 The public marketing/landing page for openRupiv — a static, dependency-free
-site (Vite + TypeScript only) with a warm, rounded, pain-point-led design.
-Sections fade/slide into view via `src/scroll/revealOnScroll.ts`, a small
+site (Vite + TypeScript only) with a clean, technical design: a monospace/serif
+type pairing, flat cards, illustrative mockups, a native `<details>` FAQ
+accordion, and a native `<details>` per-category disclosure for the status
+section. Sections fade/slide into view via `src/scroll/revealOnScroll.ts`, a small
 native `IntersectionObserver` wrapper with no external dependencies (no
 Three.js, no GSAP, no canvas). It's deployed to GitHub Pages by
 `.github/workflows/deploy-pages.yml` on every push to `main` that touches
