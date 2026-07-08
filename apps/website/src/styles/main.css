@@ -1,18 +1,17 @@
 :root {
   color-scheme: light;
-  --bg: #fdf6ec;
-  --fg: #2d2a26;
-  --fg-soft: #6b6459;
-  --accent: #e8542f;
-  --radius-lg: 28px;
-  --radius-md: 16px;
+  --bg: #fafbfc;
+  --fg: #14161a;
+  --fg-soft: #5b6472;
+  --accent: #3b5bfd;
+  --accent-soft: #eef1ff;
+  --border: #e4e7ec;
+  --radius-lg: 16px;
+  --radius-md: 10px;
   --radius-pill: 999px;
-  --shadow-soft: 0 8px 24px rgba(45, 42, 38, 0.1);
-
-  --gradient-1: linear-gradient(135deg, #ff9a76 0%, #ffce54 100%);
-  --gradient-2: linear-gradient(135deg, #4fd1c5 0%, #a3e635 100%);
-  --gradient-3: linear-gradient(135deg, #a78bfa 0%, #f472b6 100%);
-  --gradient-4: linear-gradient(135deg, #60c8ff 0%, #34d399 100%);
+  --shadow-card: 0 1px 2px rgba(20, 22, 26, 0.05), 0 4px 12px rgba(20, 22, 26, 0.04);
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --font-serif: Georgia, "Times New Roman", Times, serif;
 }
 
 * {
@@ -24,7 +23,13 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-serif);
+}
+
+h1, h2, h3, h4, .prompt-mock-label, .phase-pill, .chip-label {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 #page {
@@ -38,76 +43,171 @@ body {
   justify-content: center;
   padding: 4rem 1.5rem;
   position: relative;
-  overflow: hidden;
 }
 
 .panel {
   max-width: 640px;
+  width: 100%;
   position: relative;
-  z-index: 1;
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(6px);
+  background: #fff;
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-card);
   padding: 2.5rem;
 }
 
 .hero-section .panel {
-  background: rgba(255, 255, 255, 0.7);
   text-align: center;
 }
 
 .lede {
   font-size: 1.25rem;
   font-weight: 700;
+  font-family: var(--font-mono);
 }
 
-/* Pain-point sections: full-viewport gradient background, blob accent, icon */
-.pain-section-1 { background: var(--gradient-1); }
-.pain-section-2 { background: var(--gradient-2); }
-.pain-section-3 { background: var(--gradient-3); }
-.pain-section-4 { background: var(--gradient-4); }
-
-.pain-section::before {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  width: 480px;
-  height: 480px;
-  border-radius: 42% 58% 65% 35% / 45% 45% 55% 55%;
-  background: rgba(255, 255, 255, 0.18);
-  top: -140px;
-  right: -140px;
+/* Hero: prompt-mockup */
+.prompt-mock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
 }
 
-.pain-section::after {
-  content: "";
-  position: absolute;
-  z-index: 0;
-  width: 320px;
-  height: 320px;
-  border-radius: 58% 42% 35% 65% / 55% 55% 45% 45%;
-  background: rgba(255, 255, 255, 0.14);
-  bottom: -100px;
-  left: -100px;
+.prompt-mock-line {
+  margin: 0;
+  color: var(--fg-soft);
 }
 
-.pain-icon {
-  width: 64px;
-  height: 64px;
-  margin-bottom: 1rem;
+.prompt-mock-result {
+  color: var(--fg);
 }
 
+.prompt-mock-label {
+  display: inline-block;
+  color: var(--accent);
+  margin-right: 0.5rem;
+}
+
+.hero-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 0.65rem 1.5rem;
+  border-radius: var(--radius-pill);
+}
+
+.btn-secondary {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  opacity: 0.9;
+}
+
+.btn-secondary:hover,
+.btn-secondary:focus-visible {
+  text-decoration: underline;
+}
+
+/* Pain-point sections: flat, no gradients */
 .pain-section .panel {
-  background: rgba(255, 255, 255, 0.28);
-  color: #1f1c19;
+  text-align: left;
 }
 
-/* Reveal-on-scroll (revealOnScroll.ts)
-   Scoped under .js (added by main.ts as the first thing it does) so that
-   content is only ever hidden once JS has actually started running. With no
-   JS, JS disabled, or a failed script load, <html> never gets the .js class
-   and [data-reveal] elements stay at their natural, fully visible state. */
+/* Illustrative mockups (badges, code split, proposal card) --
+   decorative concept diagrams, never a status claim (see design doc's
+   CLAUDE.md #7 "hard line": real claims live only in .status-* below). */
+.mock-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.mock-badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.3rem 0.75rem;
+  border-radius: var(--radius-pill);
+}
+
+.mock-code-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.mock-code-col {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+}
+
+.mock-code-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.mock-file-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg-soft);
+}
+
+.mock-proposal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  margin-top: 1.25rem;
+}
+
+.mock-proposal-title {
+  font-weight: 700;
+}
+
+.mock-proposal-status {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+
+/* Reveal-on-scroll (revealOnScroll.ts) -- unchanged mechanism */
 .js [data-reveal] {
   opacity: 0;
   transform: translateY(12px);
@@ -119,95 +219,147 @@ body {
   transform: translateY(0);
 }
 
-/* FAQ: question/answer pairs, styled as rounded cards matching the roadmap chips */
+/* FAQ: native <details> accordion */
 .faq-list {
   margin: 1.5rem 0 0;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .faq-item {
-  background: #fff;
-  border-radius: var(--radius-md);
-  padding: 1.25rem 1.5rem;
-  box-shadow: var(--shadow-soft);
-}
-
-.faq-item dt {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.faq-item dd {
-  margin: 0.5rem 0 0;
-  color: var(--fg-soft);
-}
-
-/* Roadmap: rounded chip grid */
-.roadmap-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-top: 1.5rem;
-}
-
-.roadmap-chip {
-  background: #fff;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 1rem 1.25rem;
-  box-shadow: var(--shadow-soft);
 }
 
-.roadmap-chip p {
-  margin: 0.5rem 0 0;
-  font-size: 0.9rem;
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+}
+
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item summary::before {
+  content: "+ ";
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.faq-item[open] summary::before {
+  content: "\2212 ";
+}
+
+.faq-item p {
+  margin: 0.75rem 0 0;
   color: var(--fg-soft);
 }
 
-.chip-label {
+/* Roadmap: horizontal phase pipeline */
+.phase-pipeline {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  padding-bottom: 0.5rem;
+  overflow-x: auto;
+  border-top: 2px solid var(--border);
+}
+
+.phase-step {
+  flex: 0 0 200px;
+  padding-top: 1rem;
+}
+
+.phase-pill {
   display: inline-block;
-  background: var(--bg);
+  background: var(--accent-soft);
   color: var(--accent);
-  font-weight: 700;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   padding: 0.25rem 0.75rem;
   border-radius: var(--radius-pill);
 }
 
-.roadmap-chip-current {
+.phase-pill-current {
   background: var(--accent);
+  color: #fff;
 }
 
-.roadmap-chip-current .chip-label {
-  background: rgba(255, 255, 255, 0.85);
+.phase-caption {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: var(--fg-soft);
 }
 
-.roadmap-chip-current p {
-  color: rgba(255, 255, 255, 0.92);
-}
-
-/* Status section: reskin the existing renderStatus.ts markup as rounded cards */
+/* Status section: per-category <details> with count pills */
 .status-note {
   font-size: 0.875rem;
-  opacity: 0.75;
+  color: var(--fg-soft);
 }
 
-.status-section {
-  background: #fff;
+.status-category {
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-soft);
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 0.75rem;
 }
 
-.status-section h4 {
-  margin-bottom: 0.25rem;
+.status-category summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-category summary::-webkit-details-marker {
+  display: none;
+}
+
+.status-category-name {
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.status-counts {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.status-count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-pill);
+}
+
+.status-count-shipped {
+  background: #e6f6ec;
+  color: #1a7f37;
+}
+
+.status-count-in_progress {
+  background: #fff4e0;
+  color: #9a6700;
+}
+
+.status-count-planned {
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
-.status-section ul {
-  margin: 0;
+.status-count-not_planned {
+  background: #fdeeee;
+  color: #cf222e;
+}
+
+.status-detail-list {
+  margin: 1rem 0 0;
   padding-left: 1.25rem;
 }
 
@@ -227,7 +379,7 @@ body {
   content: "❌ ";
 }
 
-/* Footer: understated, no reveal treatment — always visible */
+/* Footer */
 .site-footer {
   padding: 2rem 1.5rem 3rem;
   text-align: center;
@@ -261,16 +413,15 @@ body {
 .footer-links a:hover,
 .footer-links a:focus-visible {
   color: var(--accent);
-  background: rgba(232, 84, 47, 0.1);
+  background: var(--accent-soft);
 }
 
 @media (max-width: 640px) {
-  .pain-section::before,
-  .pain-section::after {
-    display: none;
-  }
   .panel {
     padding: 1.75rem;
+  }
+  .mock-code-split {
+    grid-template-columns: 1fr;
   }
 }
 
