@@ -40,8 +40,19 @@ export function resolveEntrypoint(entrypoint: string, toolRoot: string): string 
     throw new EntrypointResolutionError(entrypoint, `${candidate} does not exist`);
   }
 
-  const realToolRoot = realpathSync(toolRoot);
-  const realCandidate = realpathSync(candidate);
+  let realToolRoot: string;
+  let realCandidate: string;
+  try {
+    realToolRoot = realpathSync(toolRoot);
+    realCandidate = realpathSync(candidate);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new EntrypointResolutionError(
+      entrypoint,
+      `failed to canonicalize resolved path: ${reason}`,
+    );
+  }
+
   const relative = path.relative(realToolRoot, realCandidate);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
     throw new EntrypointResolutionError(
