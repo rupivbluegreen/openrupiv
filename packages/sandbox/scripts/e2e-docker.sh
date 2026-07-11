@@ -25,14 +25,20 @@ cleanup() {
 trap cleanup EXIT
 
 echo "e2e-docker: preflight — can this environment create user namespaces at all?"
-# The probe binds the container root read-only into the jail so the target
-# binary (/usr/bin/true) actually resolves — bwrap sets up every namespace
-# (user, net incl. loopback) BEFORE exec, so a bare `-- true` with nothing
-# bound in fails at execvp AFTER the namespaces already succeeded, which
-# would misreport a working environment as a skip. Binding a real binary
-# makes the probe exit 0 iff the whole mechanism works.
-if ! docker run --rm --security-opt seccomp=packages/sandbox/docker-seccomp.json --security-opt apparmor=unconfined \
-    debian:bookworm-slim bash -c "apt-get update -qq >/dev/null && apt-get install -y -qq bubblewrap >/dev/null && bwrap --unshare-user --unshare-net --ro-bind / / --die-with-parent -- /usr/bin/true" >/tmp/e2e-preflight.log 2>&1; then
+# The probe exercises the SAME namespace operations the real jail uses —
+# including --unshare-pid + --proc /proc, which needs systempaths=unconfined
+# (Docker's default masked/locked /proc paths otherwise block an unprivileged
+# nested-userns process from mounting a fresh procfs: EPERM). It binds the
+# container root read-only so the target binary (/usr/bin/true) resolves —
+# bwrap sets up every namespace BEFORE exec, so a bare `-- true` with nothing
+# bound in fails at execvp AFTER the namespaces already succeeded, which would
+# misreport a working environment as a skip. This probe now exits 0 iff the
+# full mechanism the real jail depends on works.
+if ! docker run --rm \
+    --security-opt seccomp=packages/sandbox/docker-seccomp.json \
+    --security-opt apparmor=unconfined \
+    --security-opt systempaths=unconfined \
+    debian:bookworm-slim bash -c "apt-get update -qq >/dev/null && apt-get install -y -qq bubblewrap >/dev/null && bwrap --unshare-user --unshare-pid --unshare-net --proc /proc --ro-bind / / --die-with-parent -- /usr/bin/true" >/tmp/e2e-preflight.log 2>&1; then
   cat /tmp/e2e-preflight.log
   # A SKIP that reports green is a FALSE proof signal. When the caller asserts
   # the proof MUST run (CI, after the runner-side
@@ -59,6 +65,7 @@ docker run -d --name "$CONTAINER" \
   --read-only --tmpfs /tmp --tmpfs /workspaces \
   --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
+  --security-opt systempaths=unconfined \
   -e SANDBOX_TOKEN="$TOKEN" \
   -p "$PORT:8443" \
   "$IMAGE"

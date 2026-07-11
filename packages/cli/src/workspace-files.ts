@@ -159,6 +159,19 @@ services:
     security_opt:
       - seccomp=\${OPENRUPIV_REPO}/packages/sandbox/docker-seccomp.json
       - apparmor=unconfined
+      # systempaths=unconfined removes Docker's default masked/readonly /proc
+      # overlays on THIS container's own /proc. Required, not optional: each
+      # bwrap jail mounts a fresh procfs for its new PID namespace, and the
+      # kernel's mount_too_revealing() check refuses an unprivileged
+      # nested-userns process a fresh /proc while the container's /proc has
+      # locked masked sub-mounts — so without this every tool execution fails
+      # with "bwrap: Can't mount proc ... Operation not permitted". It grants
+      # NO capability and does not touch seccomp/apparmor; it only unmasks the
+      # trusted supervisor's own /proc. The untrusted tool runs inside the
+      # bwrap jail with its OWN freshly-mounted /proc and never sees this
+      # container's /proc. (Human-review note: this is a deliberate sandbox
+      # posture choice — see packages/sandbox/README.md "Status, honestly".)
+      - systempaths=unconfined
     environment:
       SANDBOX_TOKEN: \${SANDBOX_TOKEN:?set SANDBOX_TOKEN in .env (openrupiv new generates it)}
     networks:
