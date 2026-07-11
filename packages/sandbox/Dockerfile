@@ -72,8 +72,18 @@ RUN mkdir -p /workspaces
 # supervisor itself must be able to create workspace directories under
 # /workspaces for whichever caller-provided runId arrives. This is the ONE
 # service in the stack that legitimately needs this; the seccomp/AppArmor
-# deltas below are exactly bounded to what bwrap needs — no capabilities
-# are added, and `docker-seccomp.json` documents precisely what changed.
+# deltas applied at `docker run`/Compose time (via `security_opt`, not a
+# Dockerfile directive) are exactly bounded to what bwrap needs — no
+# capabilities are added. `docker-seccomp.json` (applied with
+# `security_opt: seccomp=packages/sandbox/docker-seccomp.json`) is moby's
+# default seccomp profile (pinned tag v27.3.1) verbatim, PLUS exactly one
+# prepended rule unconditionally allowing `clone`, `unshare`, `mount`,
+# `umount2`, `pivot_root` for bubblewrap — the only diff from upstream
+# default; see `packages/sandbox/SECCOMP-DELTA.md`. Docker's
+# `security_opt: seccomp=<file>` REPLACES the default profile rather than
+# layering onto it, so a "delta-only" file (as this used to be) would
+# ERRNO every syscall and kill the container on start — the file must be
+# a complete, functional profile.
 EXPOSE 8443
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=6 \

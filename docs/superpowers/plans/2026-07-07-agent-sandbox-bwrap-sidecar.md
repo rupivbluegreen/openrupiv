@@ -2736,7 +2736,16 @@ CMD ["node", "--experimental-strip-types", "/workspace/packages/sandbox/bin/serv
 
 - [ ] **Step 2: Write the outer Compose seccomp delta**
 
-`packages/sandbox/docker-seccomp.json`:
+> **Superseded — see "Step 6: Fix round" below.** The `docker-seccomp.json`
+> content originally specified here (reproduced as written, for the
+> historical record) turned out to be a **non-functional stub** when
+> actually applied via `security_opt: seccomp=<file>`: Docker's
+> `security_opt` **replaces** the default profile rather than layering
+> onto it, so a delta-only file with no real allow rules is fatal, not
+> merely under-permissive. The real file now shipped is moby's default
+> profile (pinned tag) plus exactly one prepended allow rule — see Step 6.
+
+`packages/sandbox/docker-seccomp.json` (as originally written — superseded, kept for history):
 ```json
 {
   "defaultAction": "SCMP_ACT_ERRNO",
@@ -2775,11 +2784,97 @@ docker stop $(docker ps -q --filter ancestor=openrupiv-sandbox:dev) 2>/dev/null 
 ```
 Expected: prints a status code (likely `503` in this dev environment, since the boot canary's assertion jail needs real bwrap namespace creation, which this sandbox cannot provide — see Global Constraints. A `503` here is the CORRECT fail-closed behavior, not a bug. Do not "fix" this by loosening the canary; Task 10 is where this gets a real pass on GitHub Actions.
 
+> **Gap found later (see Step 6): this smoke test never applied
+> `--security-opt seccomp=packages/sandbox/docker-seccomp.json`.** It only
+> proved the image boots with Docker's *actual* default profile, not with
+> the profile this project ships and wires into Compose. That gap is
+> exactly why the Step 2 stub's fatal brokenness went undetected until a
+> later adversarial review. Step 6 adds the missing "boot WITH the profile
+> applied" run.
+
 - [ ] **Step 5: Commit**
 
 ```bash
 git add packages/sandbox/Dockerfile packages/sandbox/docker-seccomp.json
 git commit -s -m "sandbox: Dockerfile (digest-pinned, multi-stage) + outer Compose seccomp delta (ADR-0007)"
+```
+
+- [x] **Step 6: Fix round — `docker-seccomp.json` was a non-functional stub (CRITICAL)**
+
+A later review of Task 9 found a critical defect in the Step 2 file: its
+`defaultAction` was `SCMP_ACT_ERRNO`, its `syscalls` array contained only
+a fake `_comment_base_profile` entry with **no `action` field and no real
+allow rules**, and the actually-intended syscalls lived in an
+`_delta_from_docker_default` key — a key name Docker's seccomp-profile
+parser does not recognize and silently drops. Docker's
+`security_opt: seccomp=<file>` **replaces** the default profile rather
+than layering onto it, so applying this file as written did not merely
+under-permit bwrap — it broke the container outright. Empirically:
+
+```
+$ docker run --rm -d --security-opt seccomp=<the Step-2 stub> ... openrupiv-sandbox
+docker: Error response from daemon: failed to create task for container:
+failed to create shim task: OCI runtime create failed: runc create failed:
+string  is not a valid action for seccomp
+```
+
+`runc` rejects the profile at container-*creation* time (the
+`_comment_base_profile` entry has no `action`, defaulting to an invalid
+empty string) — the container never even starts. This is precisely why
+Step 4's smoke test (which never passed `--security-opt seccomp=...` at
+all) did not catch it: that test only proved the image boots under
+Docker's real default profile, not under the profile this project ships.
+
+**Fix:** `packages/sandbox/docker-seccomp.json` is now a **complete,
+functional** seccomp profile: moby/moby's default profile fetched verbatim
+from a pinned tag, **`v27.3.1`**
+(`https://raw.githubusercontent.com/moby/moby/v27.3.1/profiles/seccomp/default.json`),
+with exactly **one** rule prepended to the front of its `syscalls` array:
+
+```json
+{
+  "names": ["clone", "unshare", "mount", "umount2", "pivot_root"],
+  "action": "SCMP_ACT_ALLOW",
+  "args": [],
+  "comment": "ADR-0007 outer delta: ... unconditionally ... because Docker's default profile gates them behind CAP_SYS_ADMIN and this container adds no capabilities. This is the ONLY change from moby's default profile v27.3.1 ..."
+}
+```
+
+`clone3` is deliberately **not** added (the ADR authorizes exactly these 5
+syscalls; moby's default already ERRNOs `clone3` without `CAP_SYS_ADMIN`,
+and this delta leaves that untouched). No capability is added anywhere.
+See `packages/sandbox/SECCOMP-DELTA.md` for the full rationale and a
+recipe for re-diffing against a future moby tag bump.
+
+**Re-verification — boot WITH the profile applied (the check Step 4 was
+missing):**
+
+```bash
+docker build -f packages/sandbox/Dockerfile -t openrupiv-sandbox:task9fix .
+TOKEN="$(node -e 'console.log(require("crypto").randomBytes(24).toString("hex"))')"
+docker run --rm -d --name sbx9fix \
+  --security-opt seccomp=packages/sandbox/docker-seccomp.json \
+  --security-opt apparmor=unconfined \
+  -e SANDBOX_TOKEN="$TOKEN" -p 18443:8443 openrupiv-sandbox:task9fix
+sleep 4
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18443/healthz   # -> 503
+docker logs sbx9fix   # boot canary attempted and failed (no userns here, expected),
+                       # then "sandbox supervisor listening" — process was NOT ERRNO-killed
+docker rm -f sbx9fix
+```
+
+Result: the container boots cleanly and `/healthz` responds `503` (the
+correct fail-closed result in this dev environment, since real
+unprivileged user namespaces aren't available here for the boot canary's
+assertion jail) — proving the seccomp profile does not ERRNO-kill the
+supervisor process. `corepack pnpm --filter @openrupiv/sandbox typecheck && test`
+re-run clean, 86/86 tests, no TypeScript touched.
+
+```bash
+git add packages/sandbox/docker-seccomp.json packages/sandbox/Dockerfile \
+  packages/sandbox/SECCOMP-DELTA.md \
+  docs/superpowers/plans/2026-07-07-agent-sandbox-bwrap-sidecar.md
+git commit -s -m "sandbox: replace non-functional seccomp stub with full moby-default + 5-syscall delta (ADR-0007)"
 ```
 
 ---
