@@ -1,0 +1,18 @@
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "archMap": [
+    { "architecture": "SCMP_ARCH_X86_64", "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"] },
+    { "architecture": "SCMP_ARCH_AARCH64", "subArchitectures": ["SCMP_ARCH_ARM"] }
+  ],
+  "syscalls": [
+    {
+      "names": ["_comment_base_profile"],
+      "comment": "This file is meant to be layered conceptually on top of Docker's default seccomp profile (moby/moby's default.json) — it documents ONLY the delta ADR-0007 requires bubblewrap to build a jail: unshare, clone (namespace flags), mount, umount2, pivot_root. An operator applying this file directly should start from Docker's published default profile and add exactly these syscalls; this project ships the delta, not a full re-derivation of Docker's ~300-syscall default allowlist, so the diff a security reviewer needs to read stays small (ADR-0007, 'Scope boundaries this ADR does not cross')."
+    }
+  ],
+  "_delta_from_docker_default": {
+    "added_syscalls": ["unshare", "clone", "clone3", "mount", "umount2", "pivot_root"],
+    "added_capabilities": [],
+    "note": "No Linux capability is added and privileged is never set — unprivileged user namespaces grant the jailed process capabilities only inside its OWN new namespaces, never on the host or this container's real view of the world. Applies ONLY to the sandbox Compose service, never to @openrupiv/runtime."
+  }
+}
