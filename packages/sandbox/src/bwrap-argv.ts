@@ -56,6 +56,20 @@ export function buildBwrapArgv(opts: BwrapArgvOptions): string[] {
     "--symlink", "usr/bin", "/bin",
     "--symlink", "usr/sbin", "/sbin",
     "--proc", "/proc",
+    // Mask sensitive /proc entries INSIDE the jail. bwrap mounts a fresh
+    // procfs but, unlike Docker/runc, applies NO masking of its own — so
+    // without this the tool would see an unmasked /proc/kcore, /proc/keys,
+    // /proc/timer_list, /proc/sysrq-trigger and /proc/scsi (a subset of
+    // moby's default masked-paths list; /proc/sched_debug is absent on modern
+    // kernels). Overmount the files with the sidecar's own /dev/null (source
+    // resolved outside the jail, always present) and the dir with an empty
+    // tmpfs. Targets are near-universal procfs entries; the boot canary's
+    // sensitive_proc_masked assertion verifies these are actually masked.
+    "--ro-bind", "/dev/null", "/proc/kcore",
+    "--ro-bind", "/dev/null", "/proc/keys",
+    "--ro-bind", "/dev/null", "/proc/timer_list",
+    "--ro-bind", "/dev/null", "/proc/sysrq-trigger",
+    "--tmpfs", "/proc/scsi",
     "--tmpfs", "/tmp",
     "--seccomp", String(opts.seccompFd),
     "--",

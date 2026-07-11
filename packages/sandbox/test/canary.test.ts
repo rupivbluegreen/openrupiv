@@ -10,6 +10,7 @@ const HAPPY_STDOUT = JSON.stringify({
   no_new_privs: true,
   nested_userns_killed: true,
   clone3_returns_enosys: true,
+  sensitive_proc_masked: true,
 });
 
 describe("runBootCanary", () => {
@@ -28,6 +29,7 @@ describe("runBootCanary", () => {
         "no_network_interface",
         "no_new_privs",
         "rlimits_applied",
+        "sensitive_proc_masked",
         "toolchain_ro",
       ].sort(),
     );

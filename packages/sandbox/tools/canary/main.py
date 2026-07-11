@@ -8,10 +8,12 @@ import errno
 import json
 import os
 import socket
+import stat
 
 libc = ctypes.CDLL("libc.so.6", use_errno=True)
 PR_GET_NO_NEW_PRIVS = 39
 SYS_clone3 = 435  # x86_64 syscall number
+_DEV_NULL_RDEV = os.makedev(1, 3)  # what a /dev/null bind-mount stat()s as
 
 
 def no_network_interface() -> bool:
@@ -81,6 +83,29 @@ def nested_userns_killed() -> bool:
     return os.WIFSIGNALED(status) and os.WTERMSIG(status) == 31
 
 
+def sensitive_proc_masked() -> bool:
+    # bwrap mounts a fresh procfs with NO masking of its own, so bwrap-argv.ts
+    # overmounts the sensitive entries: files with the sidecar's /dev/null,
+    # /proc/scsi with an empty tmpfs. Verify that masking is actually in
+    # effect from inside the jail: each masked file must stat as the /dev/null
+    # character device (or be absent on this kernel — nothing to leak), and
+    # /proc/scsi must be empty. An unmasked entry is the real procfs node (a
+    # regular file / populated dir), which fails these checks.
+    for path in ("/proc/kcore", "/proc/keys", "/proc/timer_list", "/proc/sysrq-trigger"):
+        try:
+            st = os.stat(path)
+        except FileNotFoundError:
+            continue
+        if not (stat.S_ISCHR(st.st_mode) and st.st_rdev == _DEV_NULL_RDEV):
+            return False
+    try:
+        if os.listdir("/proc/scsi"):
+            return False
+    except (FileNotFoundError, NotADirectoryError):
+        pass
+    return True
+
+
 def clone3_returns_enosys() -> bool:
     # ADR-0007 ("inner seccomp filter", ~line 257) treats nested-userns
     # creation asymmetrically and deliberately: clone(CLONE_NEWUSER) /
@@ -120,5 +145,6 @@ if __name__ == "__main__":
         "no_new_privs": no_new_privs(),
         "nested_userns_killed": nested_userns_killed(),
         "clone3_returns_enosys": clone3_returns_enosys(),
+        "sensitive_proc_masked": sensitive_proc_masked(),
     }
     print(json.dumps(report))

@@ -53,6 +53,12 @@ const EXPECTED_ASSERTION_NAMES = [
   // behavior the seccomp filter deliberately does not implement.
   "nested_userns_killed",
   "clone3_returns_enosys",
+  // bwrap mounts a fresh procfs with no masking of its own, so bwrap-argv.ts
+  // overmounts the sensitive /proc entries (/proc/kcore, /proc/keys,
+  // /proc/timer_list, /proc/sysrq-trigger with /dev/null; /proc/scsi with an
+  // empty tmpfs). This asserts, from inside the jail, that the masking is
+  // actually in effect — an unmasked procfs would expose those to the tool.
+  "sensitive_proc_masked",
 ] as const;
 
 export interface RunAssertionJailResult {
