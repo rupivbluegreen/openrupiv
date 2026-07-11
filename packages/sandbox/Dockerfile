@@ -59,6 +59,13 @@ RUN mkdir -p /opt/sandbox/seccomp /opt/sandbox-tools
 COPY packages/sandbox/seccomp/tool.bpf /opt/sandbox/seccomp/tool.bpf
 COPY packages/sandbox/tools /opt/sandbox-tools
 
+# python:3.12-slim's interpreter is at /usr/local/bin/python3, but the jail
+# execs ${SANDBOX_PYTHON_ROOT}/bin/python3 (= /usr/bin/python3, since
+# SANDBOX_PYTHON_ROOT=/usr). Symlink it there so the jail's exec resolves.
+# /usr is RO-bound whole into the jail, so both this symlink and its
+# /usr/local/bin target are present inside the jail.
+RUN ln -sf /usr/local/bin/python3 /usr/bin/python3
+
 ENV SANDBOX_PYTHON_ROOT=/usr \
     SANDBOX_TOOL_ROOT=/opt/sandbox-tools \
     SANDBOX_SECCOMP_BPF_PATH=/opt/sandbox/seccomp/tool.bpf \

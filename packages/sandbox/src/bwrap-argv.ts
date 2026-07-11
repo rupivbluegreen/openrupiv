@@ -43,6 +43,18 @@ export function buildBwrapArgv(opts: BwrapArgvOptions): string[] {
     "--ro-bind", opts.toolRoot, opts.toolRoot,
     "--bind", opts.workspaceHostPath, "/workspace",
     "--chdir", "/workspace",
+    // Recreate the base image's merged-usr root symlinks inside the jail.
+    // Only pythonRoot (/usr) is bound, but a dynamically-linked binary's
+    // absolute ELF interpreter path (/lib64/ld-linux-x86-64.so.2) and its
+    // libc (/lib/x86_64-linux-gnu/libc.so.6) are resolved by the kernel/
+    // loader against the jail root, where /lib and /lib64 would otherwise
+    // not exist — so python3 would fail to exec with ENOENT. These symlinks
+    // point back into the RO-bound /usr; they expose no host path that the
+    // /usr bind does not already expose.
+    "--symlink", "usr/lib", "/lib",
+    "--symlink", "usr/lib64", "/lib64",
+    "--symlink", "usr/bin", "/bin",
+    "--symlink", "usr/sbin", "/sbin",
     "--proc", "/proc",
     "--tmpfs", "/tmp",
     "--seccomp", String(opts.seccompFd),
