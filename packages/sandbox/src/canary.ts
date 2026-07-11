@@ -94,6 +94,16 @@ export async function runBootCanary(deps: {
     };
   }
 
+  if (typeof report !== "object" || report === null) {
+    return {
+      ok: false,
+      at,
+      assertions: [
+        { name: "canary_jail_execution", ok: false, detail: "canary jail stdout was not a JSON object" },
+      ],
+    };
+  }
+
   const assertions: CanaryAssertion[] = EXPECTED_ASSERTION_NAMES.map((name) => {
     const value = report[name];
     const ok = value === true;

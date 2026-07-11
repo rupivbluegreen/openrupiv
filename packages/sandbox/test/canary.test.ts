@@ -64,6 +64,20 @@ describe("runBootCanary", () => {
     expect(result.assertions[0]?.name).toBe("canary_jail_execution");
   });
 
+  it("reports ok:false (fail closed) if the canary jail's stdout is a bare JSON value rather than an object", async () => {
+    const resultNull = await runBootCanary({
+      runAssertionJail: async () => ({ stdout: "null", exitCode: 0, signal: null }),
+    });
+    expect(resultNull.ok).toBe(false);
+    expect(resultNull.assertions[0]?.name).toBe("canary_jail_execution");
+
+    const resultNumber = await runBootCanary({
+      runAssertionJail: async () => ({ stdout: "42", exitCode: 0, signal: null }),
+    });
+    expect(resultNumber.ok).toBe(false);
+    expect(resultNumber.assertions[0]?.name).toBe("canary_jail_execution");
+  });
+
   it("stamps an ISO timestamp", async () => {
     const result = await runBootCanary({
       runAssertionJail: async () => ({ stdout: HAPPY_STDOUT, exitCode: 0, signal: null }),
