@@ -61,8 +61,28 @@ export function createSidecarSandbox(opts: CreateSidecarSandboxOptions): ToolSan
         };
       }
 
-      const body = (await response.json()) as SandboxExecuteResult;
-      return body;
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch (err) {
+        return {
+          ok: false,
+          reason: "tool_error",
+          message: `createSidecarSandbox: failed to parse sidecar response: ${errorMessage(err)}`,
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      if (typeof (body as Record<string, unknown>).ok !== "boolean") {
+        return {
+          ok: false,
+          reason: "tool_error",
+          message: "createSidecarSandbox: sidecar returned a malformed result",
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      return body as SandboxExecuteResult;
     },
   };
 }

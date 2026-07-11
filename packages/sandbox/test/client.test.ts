@@ -54,4 +54,18 @@ describe("createSidecarSandbox", () => {
     const result = await sandbox.execute(BASE_INPUT);
     expect(result).toMatchObject({ ok: false, reason: "tool_error", message: expect.stringContaining("ECONNREFUSED") });
   });
+
+  it("maps a 200 response with invalid JSON to a tool_error result rather than throwing", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("not json{", { status: 200 }));
+    const sandbox = createSidecarSandbox({ baseUrl: "http://sandbox.internal:8443", token: "t", fetchImpl });
+    const result = await sandbox.execute(BASE_INPUT);
+    expect(result).toMatchObject({ ok: false, reason: "tool_error", message: expect.stringContaining("failed to parse sidecar response") });
+  });
+
+  it("maps a 200 response with valid JSON but missing ok field to a tool_error result", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ foo: 1 }), { status: 200 }));
+    const sandbox = createSidecarSandbox({ baseUrl: "http://sandbox.internal:8443", token: "t", fetchImpl });
+    const result = await sandbox.execute(BASE_INPUT);
+    expect(result).toMatchObject({ ok: false, reason: "tool_error", message: expect.stringContaining("malformed result") });
+  });
 });
