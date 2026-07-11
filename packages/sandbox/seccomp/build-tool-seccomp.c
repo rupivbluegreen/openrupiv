@@ -1,0 +1,108 @@
+#define _GNU_SOURCE
+/*
+ * Inner seccomp filter for the ADR-0007 tool jail. Compiled to a raw BPF
+ * program via libseccomp and committed as packages/sandbox/seccomp/tool.bpf
+ * -- exactly the precedent ADR-0006 set for the committed authz.wasm
+ * policy bundle. Rebuilt via scripts/build-seccomp.sh; CI
+ * (scripts/check-seccomp-bpf.sh) rebuilds and diffs against the committed
+ * artifact whenever the toolchain is available, so the committed filter can
+ * never go silently stale relative to the rules a reviewer actually read.
+ *
+ * Default action: ALLOW (this is the INNER filter -- the syscalls it kills
+ * are exactly the ones ADR-0007's "Consequences" section names as the
+ * honest residual risk of unprivileged-userns isolation; everything else a
+ * real CPython process needs is left alone by design, not enumerated).
+ *
+ * SCMP_ACT_KILL_PROCESS, never SCMP_ACT_ERRNO: a policy violation inside
+ * the jail is a non-negotiable kill, not a retriable error the tool code
+ * could catch and work around.
+ */
+#include <seccomp.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sched.h>
+#include <sys/socket.h>
+#include <linux/net.h>
+
+static int deny(scmp_filter_ctx ctx, int syscall_nr) {
+    return seccomp_rule_add(ctx, SCMP_ACT_KILL_PROCESS, syscall_nr, 0);
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2) {
+        fprintf(stderr, "usage: %s <output.bpf>\n", argv[0]);
+        return 2;
+    }
+
+    scmp_filter_ctx ctx = seccomp_init(SCMP_ACT_ALLOW);
+    if (!ctx) {
+        fprintf(stderr, "seccomp_init failed\n");
+        return 1;
+    }
+
+    /* Syscalls most consistently behind real unprivileged-userns Linux
+     * kernel privilege-escalation bugs. */
+    const int denied_syscalls[] = {
+        SCMP_SYS(mount),
+        SCMP_SYS(umount2),
+        SCMP_SYS(ptrace),
+        SCMP_SYS(bpf),
+        SCMP_SYS(keyctl),
+        SCMP_SYS(userfaultfd),
+        SCMP_SYS(io_uring_setup),
+        SCMP_SYS(io_uring_enter),
+        SCMP_SYS(io_uring_register),
+        SCMP_SYS(process_vm_readv),
+        SCMP_SYS(process_vm_writev),
+        SCMP_SYS(open_by_handle_at),
+        SCMP_SYS(perf_event_open),
+    };
+    for (size_t i = 0; i < sizeof(denied_syscalls) / sizeof(denied_syscalls[0]); i++) {
+        if (deny(ctx, denied_syscalls[i]) != 0) {
+            fprintf(stderr, "failed to add deny rule for syscall %d\n", denied_syscalls[i]);
+            return 1;
+        }
+    }
+
+    /* Nested user-namespace creation. clone3 is denied UNCONDITIONALLY
+     * (not flag-inspected): clone3 takes a pointer to a userspace
+     * struct clone_args that seccomp cannot dereference, so any
+     * flag-based re-denial would be trivially bypassable. */
+    if (seccomp_rule_add(ctx, SCMP_ACT_KILL_PROCESS, SCMP_SYS(clone),
+                          1, SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)) != 0) {
+        fprintf(stderr, "failed to add clone/CLONE_NEWUSER deny rule\n");
+        return 1;
+    }
+    if (deny(ctx, SCMP_SYS(clone3)) != 0) {
+        fprintf(stderr, "failed to add clone3 deny rule\n");
+        return 1;
+    }
+
+    /* socket(): AF_UNIX only. --unshare-net already removes any network
+     * interface, so AF_UNIX (including abstract sockets, scoped per netns
+     * by the kernel) is safe and needed by Python's stdlib. Every other
+     * family is denied, EXPLICITLY including AF_NETLINK -- nf_tables/
+     * netfilter CVEs reachable via AF_NETLINK sockets are the canonical
+     * unprivileged-userns kernel-LPE route in the current CVE landscape. */
+    if (seccomp_rule_add(ctx, SCMP_ACT_KILL_PROCESS, SCMP_SYS(socket),
+                          1, SCMP_A0(SCMP_CMP_NE, AF_UNIX)) != 0) {
+        fprintf(stderr, "failed to add socket() family-restriction rule\n");
+        return 1;
+    }
+
+    int fd = open(argv[1], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        perror("open");
+        return 1;
+    }
+    int rc = seccomp_export_bpf(ctx, fd);
+    close(fd);
+    seccomp_release(ctx);
+    if (rc != 0) {
+        fprintf(stderr, "seccomp_export_bpf failed: %d\n", rc);
+        return 1;
+    }
+    return 0;
+}

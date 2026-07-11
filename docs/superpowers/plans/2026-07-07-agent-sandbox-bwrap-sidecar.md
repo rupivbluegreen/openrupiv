@@ -584,6 +584,7 @@ This produces the **inner** filter (applies inside the jail, independent of the 
 
 `packages/sandbox/seccomp/build-tool-seccomp.c`:
 ```c
+#define _GNU_SOURCE
 /*
  * Inner seccomp filter for the ADR-0007 tool jail. Compiled to a raw BPF
  * program via libseccomp and committed as packages/sandbox/seccomp/tool.bpf
@@ -607,6 +608,7 @@ This produces the **inner** filter (applies inside the jail, independent of the 
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sched.h>
 #include <sys/socket.h>
 #include <linux/net.h>
 
