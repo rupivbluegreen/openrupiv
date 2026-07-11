@@ -34,6 +34,14 @@ async function main() {
         seccompBpfPath: config.seccompBpfPath,
         limits: { wallClockMs: 10_000, memoryBytes: 268_435_456, maxOutputBytes: 65_536 },
       });
+      // Surface WHY the canary jail did not succeed. Without this, a jail
+      // that crashes (e.g. an assertion raising inside the jail) collapses
+      // to a bare "exit code 1" with no detail — runJail captures the jail's
+      // stderr in outcome.message, so log the whole outcome so operators (and
+      // CI) can see the traceback / classification instead of guessing.
+      if (!outcome.ok) {
+        logger.error({ event: "sandbox.canary_jail_error", outcome }, "canary assertion jail did not succeed");
+      }
       return {
         stdout: outcome.ok ? JSON.stringify(outcome.output) : "",
         exitCode: outcome.ok ? 0 : 1,
