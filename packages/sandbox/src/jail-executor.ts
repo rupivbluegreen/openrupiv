@@ -78,6 +78,18 @@ const RLIMIT_CPU_SECONDS = 30;
 const RLIMIT_FSIZE_BYTES = 67_108_864;
 const RLIMIT_NOFILE = 256;
 
+// The inner seccomp filter kills a disallowed syscall with SIGSYS (signal
+// 31). But the process node tracks is `bwrap` (prlimit exec's into it), and
+// bwrap does NOT re-raise the inner process's signal on itself — when the
+// jailed process is killed by signal N, bwrap reports it by exiting with the
+// conventional 128+N status. So a SIGSYS kill of the tool surfaces to the
+// supervisor as exit CODE 159 (128+31) with signal===null, NOT as
+// signal==="SIGSYS". Both forms must be treated as the same kernel-enforced
+// violation, or every real seccomp kill (network egress, nested userns,
+// mount, ...) is misclassified as a generic tool_error.
+const SIGSYS = 31;
+const SIGSYS_EXIT_CODE = 128 + SIGSYS;
+
 // fs_escape is a best-effort STDERR LABEL only — real fs-escape enforcement
 // is bwrap's mount namespace (RO binds -> EROFS; absent host paths ->
 // ENOENT), not this heuristic. ENOENT ("no such file or directory") and
@@ -183,7 +195,7 @@ export function runJail(
       // representative violation subtype; the message text still
       // accurately says the process was killed by the inner seccomp
       // filter, without claiming it was specifically a network syscall.
-      if (signal === "SIGSYS") {
+      if (signal === "SIGSYS" || code === SIGSYS_EXIT_CODE) {
         resolve({
           ok: false,
           reason: "violation",

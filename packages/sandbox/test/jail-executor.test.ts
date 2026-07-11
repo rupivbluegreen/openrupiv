@@ -79,6 +79,20 @@ describe("runJail", () => {
     expect(outcome).toMatchObject({ ok: false, reason: "violation", violation: "network_egress" });
   });
 
+  // Real jails never surface signal==="SIGSYS": bwrap (the tracked process)
+  // reports a signal-killed inner process as exit code 128+signum. A SIGSYS
+  // (31) kill therefore arrives as code 159 / signal null, and must classify
+  // identically to a raw SIGSYS — otherwise every real seccomp kill is
+  // misreported as a generic tool_error (observed on the ADR-0007 e2e proof).
+  it("classifies exit code 159 (128+SIGSYS) as a network_egress violation", async () => {
+    const child = new FakeChild();
+    const spawn = vi.fn().mockReturnValue(child);
+    const promise = runJail(baseInput(), { spawn });
+    child.emit("exit", 159, null);
+    const outcome = await promise;
+    expect(outcome).toMatchObject({ ok: false, reason: "violation", violation: "network_egress" });
+  });
+
   it("classifies a nonzero exit with EROFS-shaped stderr as fs_escape", async () => {
     const child = new FakeChild();
     const spawn = vi.fn().mockReturnValue(child);
