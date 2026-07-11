@@ -3115,6 +3115,7 @@ docker build -f packages/sandbox/Dockerfile -t "$IMAGE" .
 TOKEN="$(node -e 'console.log(require("crypto").randomBytes(24).toString("hex"))')"
 echo "e2e-docker: starting container..."
 docker run -d --name "$CONTAINER" \
+  --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
   -e SANDBOX_TOKEN="$TOKEN" \
   -p "$PORT:8443" \
@@ -3157,7 +3158,7 @@ echo "$net_result" | grep -q '"violation":"network_egress"' || { echo "e2e-docke
 echo "e2e-docker: fs_probe (must be blocked)..."
 fs_result="$(call fs_probe 5000)"
 echo "$fs_result"
-echo "$fs_result" | grep -q '"escaped":true"\|"escaped": true' && { echo "e2e-docker: FAIL — filesystem escape succeeded" >&2; exit 1; }
+echo "$fs_result" | grep -q '"escaped":true' && { echo "e2e-docker: FAIL — filesystem escape succeeded" >&2; exit 1; }
 echo "$fs_result" | grep -q '"ok":true' || { echo "e2e-docker: FAIL — fs_probe tool itself errored unexpectedly" >&2; exit 1; }
 
 echo "e2e-docker: sleep_forever (wall clock must kill it)..."
