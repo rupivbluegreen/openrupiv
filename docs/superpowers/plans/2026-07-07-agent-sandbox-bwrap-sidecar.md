@@ -604,6 +604,7 @@ This produces the **inner** filter (applies inside the jail, independent of the 
  * could catch and work around.
  */
 #include <seccomp.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -652,17 +653,33 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* Nested user-namespace creation. clone3 is denied UNCONDITIONALLY
-     * (not flag-inspected): clone3 takes a pointer to a userspace
-     * struct clone_args that seccomp cannot dereference, so any
-     * flag-based re-denial would be trivially bypassable. */
+    /* Nested user-namespace creation. clone3 unconditionally returns
+     * ENOSYS (not flag-inspected, and not KILL_PROCESS): clone3 takes a
+     * pointer to a userspace struct clone_args that seccomp cannot
+     * dereference, so any flag-based re-denial would be trivially
+     * bypassable -- the only sound mitigation is denying clone3 outright,
+     * independent of arguments. ENOSYS rather than KILL is load-bearing:
+     * modern glibc calls clone3 first for thread/process creation
+     * (pthread_create, posix_spawn, fork) and falls back to the clone
+     * syscall below ONLY on ENOSYS, so legitimate multi-threaded/
+     * multi-process Python continues to work via the (CLONE_NEWUSER-
+     * masked-killed) clone path, while a direct malicious clone3(
+     * CLONE_NEWUSER) still cannot create the namespace. */
     if (seccomp_rule_add(ctx, SCMP_ACT_KILL_PROCESS, SCMP_SYS(clone),
                           1, SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)) != 0) {
         fprintf(stderr, "failed to add clone/CLONE_NEWUSER deny rule\n");
         return 1;
     }
-    if (deny(ctx, SCMP_SYS(clone3)) != 0) {
-        fprintf(stderr, "failed to add clone3 deny rule\n");
+    /* unshare() takes its flags directly as a scalar arg0 (unlike
+     * clone3), so seccomp CAN inspect it: mask-match CLONE_NEWUSER only,
+     * leaving unshare() of other namespace types allowed. */
+    if (seccomp_rule_add(ctx, SCMP_ACT_KILL_PROCESS, SCMP_SYS(unshare),
+                          1, SCMP_A0(SCMP_CMP_MASKED_EQ, CLONE_NEWUSER, CLONE_NEWUSER)) != 0) {
+        fprintf(stderr, "failed to add unshare/CLONE_NEWUSER deny rule\n");
+        return 1;
+    }
+    if (seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(clone3), 0) != 0) {
+        fprintf(stderr, "failed to add clone3 ENOSYS rule\n");
         return 1;
     }
 
@@ -782,10 +799,11 @@ Modify `.github/workflows/ci.yml`, add a new job after `policy-wasm`:
   sandbox-seccomp:
     name: Sandbox inner seccomp BPF matches source
     runs-on: ubuntu-latest
+    container: ubuntu:24.04
     steps:
       - uses: actions/checkout@v4
       - name: Install libseccomp toolchain
-        run: sudo apt-get update && sudo apt-get install -y gcc libseccomp-dev
+        run: apt-get update && apt-get install -y gcc libseccomp-dev
       - name: Rebuild and diff the committed seccomp BPF
         run: bash packages/sandbox/scripts/check-seccomp-bpf.sh
 ```
