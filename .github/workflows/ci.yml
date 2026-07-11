@@ -70,6 +70,14 @@ jobs:
       - name: Rebuild and diff the committed seccomp BPF
         run: bash packages/sandbox/scripts/check-seccomp-bpf.sh
 
+  sandbox-boot-canary:
+    name: Sandbox boot canary (real bwrap isolation proof)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the real end-to-end isolation proof
+        run: bash packages/sandbox/scripts/e2e-docker.sh
+
   dco:
     name: DCO sign-off
     if: github.event_name == 'pull_request'

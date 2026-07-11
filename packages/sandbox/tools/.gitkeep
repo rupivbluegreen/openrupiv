@@ -1,8 +1,0 @@
-Placeholder so `packages/sandbox/tools/` exists as a git-tracked directory and
-the Dockerfile's `COPY packages/sandbox/tools /opt/sandbox-tools` has a source
-to copy (Docker COPY fails outright if the source path doesn't exist at all).
-
-Real tool fixtures (canary/, echo/, network_probe/, fs_probe/, mem_hog/,
-sleep_forever/) are added in Task 9's own plan (Task 10 of the sandbox
-sub-plan) — see docs/superpowers/plans/2026-07-07-agent-sandbox-bwrap-sidecar.md.
-Delete this file once real tool subdirectories make it unnecessary.
