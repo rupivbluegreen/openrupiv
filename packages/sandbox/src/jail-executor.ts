@@ -22,7 +22,7 @@
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
-import { openSync } from "node:fs";
+import { closeSync, openSync } from "node:fs";
 import { buildBwrapArgv } from "./bwrap-argv";
 
 export interface JailLimits {
@@ -63,6 +63,7 @@ export interface ChildProcessLike {
   stdout: { on(event: "data", cb: (chunk: Buffer) => void): void } | null;
   stderr: { on(event: "data", cb: (chunk: Buffer) => void): void } | null;
   on(event: "exit", cb: (code: number | null, signal: NodeJS.Signals | null) => void): void;
+  on(event: "error", cb: (err: Error) => void): void;
   kill(signal: NodeJS.Signals): boolean;
 }
 
@@ -77,10 +78,15 @@ const RLIMIT_CPU_SECONDS = 30;
 const RLIMIT_FSIZE_BYTES = 67_108_864;
 const RLIMIT_NOFILE = 256;
 
+// fs_escape is a best-effort STDERR LABEL only — real fs-escape enforcement
+// is bwrap's mount namespace (RO binds -> EROFS; absent host paths ->
+// ENOENT), not this heuristic. ENOENT ("no such file or directory") and
+// EACCES ("permission denied") are far too common in ordinary, benign tool
+// failures (e.g. a tool's own FileNotFoundError for a missing workspace
+// file) to be used as a security signal, so only the read-only-filesystem
+// (EROFS) signal — which bwrap's RO binds actually produce — is matched.
 function looksLikeFsEscape(stderrText: string): boolean {
-  return /read-only file system|errno 30|errno 2\b|no such file or directory|permission denied/i.test(
-    stderrText,
-  );
+  return /read-only file system|errno 30\b|\berofs\b/i.test(stderrText);
 }
 
 export function runJail(
@@ -118,6 +124,15 @@ export function runJail(
 
     const child = spawnFn("prlimit", prlimitArgs, { stdio: ["ignore", "pipe", "pipe", seccompFd] });
 
+    // The child has already inherited FD 3 (a dup of seccompFd) via the
+    // stdio array passed to spawnFn above, so the supervisor's own copy is
+    // no longer needed as of this point on every path (success, spawn
+    // failure, later timeout/exit) — close it once, right here, rather
+    // than in the exit/error handlers, so there is exactly one close site
+    // and no risk of a double-close race between them. Leaving it open
+    // would leak one fd per runJail call until RLIMIT_NOFILE is exhausted.
+    closeSync(seccompFd);
+
     let stdoutBytes = Buffer.alloc(0);
     let stderrBytes = Buffer.alloc(0);
     let outputCapped = false;
@@ -148,6 +163,36 @@ export function runJail(
       const durationMs = Date.now() - startedAt;
       const stderrText = stderrBytes.toString("utf8");
 
+      // SIGSYS is a kernel-enforced seccomp kill (ADR-0007 "Network: three
+      // independent layers") and MUST be checked before the timedOut /
+      // outputCapped soft-limit branches below: those are parent-side (a
+      // JS timer, a byte counter on piped stdout) and can coincide with a
+      // genuine security violation, in which case the violation is the
+      // more important fact to surface — a kernel kill for a disallowed
+      // syscall must never be masked as "just" a benign output or time
+      // cap. This ordering does not lose the wall-clock case: our
+      // wall-clock timer always SIGKILLs (see below), never SIGSYS, so a
+      // real timeout still falls through to the timedOut branch.
+      //
+      // Labeling simplification (documented for the human reviewer, no
+      // logic change): the inner seccomp filter KILL_PROCESSes on many
+      // disallowed syscalls (mount, ptrace, etc.), not only socket() /
+      // connect(), but the shared SandboxExecuteResult contract only
+      // defines "network_egress" and "fs_escape" as violation subtypes.
+      // Every SIGSYS death is therefore labeled "network_egress" as the
+      // representative violation subtype; the message text still
+      // accurately says the process was killed by the inner seccomp
+      // filter, without claiming it was specifically a network syscall.
+      if (signal === "SIGSYS") {
+        resolve({
+          ok: false,
+          reason: "violation",
+          violation: "network_egress",
+          message: "process was killed by the inner seccomp filter (SIGSYS)",
+          durationMs,
+        });
+        return;
+      }
       if (timedOut) {
         resolve({
           ok: false,
@@ -164,16 +209,6 @@ export function runJail(
           reason: "limit",
           limit: "output_size",
           message: `tool output exceeded maxOutputBytes=${input.limits.maxOutputBytes}`,
-          durationMs,
-        });
-        return;
-      }
-      if (signal === "SIGSYS") {
-        resolve({
-          ok: false,
-          reason: "violation",
-          violation: "network_egress",
-          message: "process was killed by the inner seccomp filter (SIGSYS)",
           durationMs,
         });
         return;
@@ -200,6 +235,23 @@ export function runJail(
         resolve({ ok: true, output, durationMs });
         return;
       }
+      // Best-effort: RLIMIT_AS (prlimit --as) IS kernel-enforced, but
+      // CPython surfaces the resulting allocation failure as a plain
+      // MemoryError on stderr rather than a distinguishable signal or exit
+      // code, so this is a heuristic label, not the enforcement itself.
+      // It is NOT exhaustive: a cgroup-level OOM kill (bare SIGKILL, no
+      // stderr) remains ambiguous and still falls through to the
+      // SIGKILL/tool_error branches above/below.
+      if (/MemoryError/.test(stderrText)) {
+        resolve({
+          ok: false,
+          reason: "limit",
+          limit: "memory",
+          message: stderrText || `process exited with code ${code}`,
+          durationMs,
+        });
+        return;
+      }
       if (looksLikeFsEscape(stderrText)) {
         resolve({
           ok: false,
@@ -214,6 +266,25 @@ export function runJail(
         ok: false,
         reason: "tool_error",
         message: stderrText || `process exited with code ${code}`,
+        durationMs,
+      });
+    });
+
+    // If spawnFn itself fails asynchronously (e.g. `prlimit` is missing
+    // from PATH -> ENOENT), Node emits "error" instead of "exit" and never
+    // emits "exit" at all — without this handler the returned Promise
+    // would never settle, leaking a concurrency slot forever. The
+    // `settled` guard (shared with the exit handler above) ensures exactly
+    // one of exit/error can resolve the Promise.
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const durationMs = Date.now() - startedAt;
+      resolve({
+        ok: false,
+        reason: "tool_error",
+        message: `failed to spawn jail process: ${err.message}`,
         durationMs,
       });
     });
