@@ -66,4 +66,27 @@ describe("createWorkspace / cleanupWorkspace", () => {
     expect(existsSync(path.join(outsideTarget, "sentinel"))).toBe(true);
     await rm(outsideTarget, { recursive: true, force: true });
   });
+
+  it("removes an internal symlink entry without following it to delete the outside target", async () => {
+    const workspaceDir = await createWorkspace(RUN_ID, root);
+
+    // Create an outside directory with a sentinel file that must survive cleanup.
+    const outsideDir = await mkdtemp(path.join(tmpdir(), "sandbox-outside-nested-"));
+    await writeFile(path.join(outsideDir, "sentinel"), "must-survive");
+
+    // Create an internal symlink inside the workspace pointing to the outside directory.
+    await symlink(outsideDir, path.join(workspaceDir, "link-to-outside"));
+
+    const logger = fakeLogger();
+    await cleanupWorkspace(RUN_ID, root, logger);
+
+    // The workspace itself, including the internal symlink entry, should be gone.
+    expect(existsSync(workspaceDir)).toBe(false);
+
+    // But the outside directory and its contents must survive untouched.
+    expect(existsSync(path.join(outsideDir, "sentinel"))).toBe(true);
+
+    // Clean up the outside directory.
+    await rm(outsideDir, { recursive: true, force: true });
+  });
 });
