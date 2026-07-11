@@ -9,6 +9,17 @@ const RUN_ID = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
 const TOKEN = "a".repeat(40);
 const WORKSPACE_ROOT = "/tmp/sandbox-test-workspaces";
 
+/** A promise you can resolve/settle from outside -- used to hold a request
+ * inside runJailFn until the test is ready to release it, and to know
+ * precisely when runJailFn has actually been entered (no polling/sleeps). */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 const HEALTHY_CANARY: CanaryResult = { ok: true, assertions: [], at: new Date(0).toISOString() };
 const UNHEALTHY_CANARY: CanaryResult = {
   ok: false,
@@ -124,5 +135,68 @@ describe("GET /healthz", () => {
     const app = await createServer(baseDeps());
     const res = await app.inject({ method: "GET", url: "/healthz" });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("POST /v1/execute concurrency cap (ADR-0007:361-364)", () => {
+  // A distinct runId, not shared with any other test in this file: request A
+  // creates a real workspace for it, so reusing the shared RUN_ID could race
+  // against another test's own create/cleanup of that same directory.
+  const CONCURRENCY_RUN_ID = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+
+  it("rejects a request at capacity with 503 ERR_SANDBOX_AT_CAPACITY without invoking the jail, then serves the held request once its slot frees", async () => {
+    let jailCallCount = 0;
+    const jailEntered = deferred<void>();
+    const jailGate = deferred<JailOutcome>();
+
+    const app = await createServer(
+      baseDeps({
+        concurrency: { maxConcurrent: 1, maxQueueDepth: 0 },
+        runJailFn: async (_input: RunJailInput) => {
+          jailCallCount += 1;
+          jailEntered.resolve();
+          return jailGate.promise;
+        },
+      }),
+    );
+
+    const payload = {
+      runId: CONCURRENCY_RUN_ID,
+      tool: "echo",
+      input: {},
+      limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 },
+    };
+
+    // Request A: acquires the only slot and blocks inside runJailFn.
+    const requestA = app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload,
+    });
+
+    // Wait for real confirmation that A has actually entered runJailFn (and
+    // therefore holds the slot) before firing B -- no sleeps, no polling.
+    await jailEntered.promise;
+
+    // Request B: fired while A still holds the only slot and the queue
+    // depth is 0 -- must be rejected outright, never reach the jail.
+    const resB = await app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload,
+    });
+
+    expect(resB.statusCode).toBe(503);
+    expect(resB.json()).toEqual({ error: "ERR_SANDBOX_AT_CAPACITY" });
+    expect(jailCallCount).toBe(1);
+
+    // Release A's slot -- A should complete normally.
+    jailGate.resolve({ ok: true, output: { echoed: true }, durationMs: 5 });
+    const resA = await requestA;
+    expect(resA.statusCode).toBe(200);
+    expect(resA.json()).toEqual({ ok: true, output: { echoed: true }, durationMs: 5 });
+    expect(jailCallCount).toBe(1);
   });
 });

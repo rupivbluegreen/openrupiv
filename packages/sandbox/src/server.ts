@@ -9,6 +9,7 @@
 
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { CanaryResult } from "./canary";
+import { ExecutionSemaphore, SandboxAtCapacityError } from "./concurrency";
 import { resolveEntrypoint, EntrypointResolutionError } from "./entrypoint";
 import { runJail, type JailOutcome, type RunJailInput } from "./jail-executor";
 import { createLogger, type Logger } from "./logger";
@@ -25,6 +26,7 @@ export interface ServerDeps {
   canaryResult: CanaryResult;
   logger?: Logger;
   runJailFn?: (input: RunJailInput) => Promise<JailOutcome>;
+  concurrency?: { maxConcurrent: number; maxQueueDepth: number };
 }
 
 interface ExecuteRequestBody {
@@ -48,6 +50,10 @@ function extractBearer(header: string | string[] | undefined): string | null {
 export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
   const logger = deps.logger ?? createLogger();
   const runJailFn = deps.runJailFn ?? runJail;
+  const semaphore = new ExecutionSemaphore(
+    deps.concurrency?.maxConcurrent ?? 4,
+    deps.concurrency?.maxQueueDepth ?? 8,
+  );
   const app = Fastify({ logger: false });
 
   app.get("/healthz", async (_request: FastifyRequest, reply: FastifyReply) => {
@@ -96,8 +102,20 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
       return reply.send({ error: "ERR_SANDBOX_BAD_LIMITS" });
     }
 
-    const workspaceHostPath = await createWorkspace(runId, deps.workspaceRoot);
+    let release: () => void;
     try {
+      release = await semaphore.acquire();
+    } catch (err) {
+      if (err instanceof SandboxAtCapacityError) {
+        logger.warn({ event: "sandbox.at_capacity" }, "rejected /v1/execute: at capacity");
+        reply.code(503);
+        return reply.send({ error: "ERR_SANDBOX_AT_CAPACITY" });
+      }
+      throw err;
+    }
+
+    try {
+      const workspaceHostPath = await createWorkspace(runId, deps.workspaceRoot);
       const outcome = await runJailFn({
         entrypointPath,
         workspaceHostPath,
@@ -109,7 +127,10 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
       reply.code(200);
       return reply.send(outcome);
     } finally {
+      // release() must always run alongside cleanup, even if createWorkspace
+      // or runJailFn threw -- the slot is never leaked.
       await cleanupWorkspace(runId, deps.workspaceRoot, logger);
+      release();
     }
   });
 

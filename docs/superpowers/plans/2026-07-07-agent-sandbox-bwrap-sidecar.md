@@ -1777,12 +1777,14 @@ git commit -s -m "sandbox: structured logger + boot canary interpretation (ADR-0
 **Files:**
 - Create: `packages/sandbox/src/config.ts`
 - Create: `packages/sandbox/src/server.ts`
+- Create: `packages/sandbox/src/concurrency.ts`
 - Create: `packages/sandbox/bin/serve.mjs`
 - Test: `packages/sandbox/test/server.test.ts`
+- Test: `packages/sandbox/test/concurrency.test.ts`
 
 **Interfaces:**
-- Consumes: `tokensMatch` (Task 1), `extractRunId`/`isValidRunId` (Task 1), `createWorkspace`/`cleanupWorkspace` (Task 4), `runJail`/`RunJailInput`/`JailOutcome` (Task 5), `resolveEntrypoint` (Task 2), `createLogger`/`Logger` (Task 6), `runBootCanary`/`CanaryResult` (Task 6).
-- Produces: `export interface ServerDeps { token: string; workspaceRoot: string; pythonRoot: string; toolRoot: string; seccompBpfPath: string; logger?: Logger; runJailFn?: typeof runJail; canaryResult: CanaryResult }`, `export async function createServer(deps: ServerDeps): Promise<FastifyInstance>`. Task 9's Dockerfile `CMD` invokes `bin/serve.mjs`, which reads env vars into `ServerDeps` and calls `createServer` then `.listen`.
+- Consumes: `tokensMatch` (Task 1), `extractRunId`/`isValidRunId` (Task 1), `createWorkspace`/`cleanupWorkspace` (Task 4), `runJail`/`RunJailInput`/`JailOutcome` (Task 5), `resolveEntrypoint` (Task 2), `createLogger`/`Logger` (Task 6), `runBootCanary`/`CanaryResult` (Task 6), `ExecutionSemaphore`/`SandboxAtCapacityError` (this task's own `concurrency.ts`, below).
+- Produces: `export interface ServerDeps { token: string; workspaceRoot: string; pythonRoot: string; toolRoot: string; seccompBpfPath: string; logger?: Logger; runJailFn?: typeof runJail; canaryResult: CanaryResult; concurrency?: { maxConcurrent: number; maxQueueDepth: number } }`, `export async function createServer(deps: ServerDeps): Promise<FastifyInstance>`. Task 9's Dockerfile `CMD` invokes `bin/serve.mjs`, which reads env vars into `ServerDeps` and calls `createServer` then `.listen`. `concurrency.ts` produces `export class ExecutionSemaphore`, `export class SandboxAtCapacityError extends Error`, consumed by `server.ts`'s `/v1/execute` handler to enforce ADR-0007's supervisor-level concurrency cap.
 
 - [ ] **Step 1: Implement `config.ts`**
 
@@ -2168,6 +2170,191 @@ Expected: no errors. `bin/serve.mjs` is excluded from `tsconfig.json`'s `include
 git add packages/sandbox/src/config.ts packages/sandbox/src/server.ts packages/sandbox/bin/serve.mjs \
   packages/sandbox/test/server.test.ts packages/sandbox/test/fixtures
 git commit -s -m "sandbox: supervisor HTTP server (/v1/execute, /healthz) + entrypoint"
+```
+
+- [ ] **Step 10: Write the failing test for the concurrency gate**
+
+Steps 5-9 above satisfy every gate in the brief except one: ADR-0007's
+"Resource limits" section (`docs/adr/0007-agent-sandbox-bubblewrap-sidecar.md:361-364`)
+mandates a **supervisor-level concurrency cap of 4** simultaneous jails, with
+requests beyond the cap queuing up to a **small bounded depth** and then
+being **rejected outright** — an unbounded queue would itself be a DoS
+vector. Nothing above enforces this; `/v1/execute` as built so far calls
+`runJailFn` with no bound on how many run concurrently. This gap was
+identified and flagged (not silently patched) when Task 7 was first
+implemented — see `.superpowers/sdd/task-7-report.md` — and is closed here,
+in the same task, rather than as an unreviewed follow-up.
+
+`packages/sandbox/test/concurrency.test.ts` (TDD red first — `../src/concurrency`
+does not exist yet): covers acquiring up to `maxConcurrent` immediately;
+queuing the `(maxConcurrent+1)`th `acquire()` (assert `queuedCount` rises and
+the promise stays pending); FIFO hand-off to the first queued waiter once a
+slot frees; rejecting with `SandboxAtCapacityError` when busy AND the queue
+is already at `maxQueueDepth`, without changing `activeCount`/`queuedCount`;
+idempotent `release()` (a second call frees nothing further); a fresh
+`acquire()` succeeding immediately after a release leaves the queue empty;
+and the constructor rejecting `maxConcurrent < 1` / `maxQueueDepth < 0`. Uses
+real deferred promises and microtask flushing (`await Promise.resolve()`) to
+observe pending vs. resolved state — no fake timers, no sleeps.
+
+Run: `corepack pnpm --filter @openrupiv/sandbox test`
+Expected: FAIL — `Cannot find module '../src/concurrency'`.
+
+- [ ] **Step 11: Implement `concurrency.ts`**
+
+`packages/sandbox/src/concurrency.ts` — a bounded-semaphore gate, reviewed
+and transcribed verbatim (not re-derived) because it is DoS-relevant,
+security-adjacent code:
+
+```ts
+/**
+ * Bounded concurrency gate for jail execution (ADR-0007: "supervisor-level
+ * concurrency cap of 4 simultaneous jails ... requests beyond the cap queue
+ * up to a small bounded depth and are then rejected outright rather than
+ * queued unboundedly -- an unbounded queue would itself be a DoS vector").
+ *
+ * acquire() resolves with a release() function once a slot is free. If all
+ * slots are busy AND the wait queue is already at maxQueueDepth, acquire()
+ * rejects immediately with SandboxAtCapacityError (fail fast, never queue
+ * unboundedly). Each release() frees its slot exactly once (double-call
+ * guarded) and hands it to the next waiter (FIFO) if any.
+ */
+
+export class SandboxAtCapacityError extends Error {
+  constructor(
+    message = "sandbox at capacity: all execution slots busy and the wait queue is full",
+  ) {
+    super(message);
+    this.name = "SandboxAtCapacityError";
+  }
+}
+
+type Waiter = (release: () => void) => void;
+
+export class ExecutionSemaphore {
+  private active = 0;
+  private readonly queue: Waiter[] = [];
+
+  constructor(
+    private readonly maxConcurrent: number,
+    private readonly maxQueueDepth: number,
+  ) {
+    if (maxConcurrent < 1) throw new Error("maxConcurrent must be >= 1");
+    if (maxQueueDepth < 0) throw new Error("maxQueueDepth must be >= 0");
+  }
+
+  /** Resolves with a release fn when a slot is free; rejects with
+   * SandboxAtCapacityError if all slots are busy and the queue is full. */
+  acquire(): Promise<() => void> {
+    if (this.active < this.maxConcurrent) {
+      this.active += 1;
+      return Promise.resolve(this.makeRelease());
+    }
+    if (this.queue.length < this.maxQueueDepth) {
+      return new Promise<() => void>((resolve) => {
+        this.queue.push((release) => resolve(release));
+      });
+    }
+    return Promise.reject(new SandboxAtCapacityError());
+  }
+
+  get activeCount(): number {
+    return this.active;
+  }
+
+  get queuedCount(): number {
+    return this.queue.length;
+  }
+
+  private makeRelease(): () => void {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.queue.shift();
+      if (next) {
+        // Hand this slot directly to the next waiter; active count is
+        // unchanged (the slot is transferred, not freed then reacquired).
+        next(this.makeRelease());
+      } else {
+        this.active -= 1;
+      }
+    };
+  }
+}
+```
+
+Run: `corepack pnpm --filter @openrupiv/sandbox test`
+Expected: PASS (all `concurrency.test.ts` cases green).
+
+- [ ] **Step 12: Wire the cap into `server.ts`**
+
+1. Add `concurrency?: { maxConcurrent: number; maxQueueDepth: number }` to
+   `ServerDeps`.
+2. In `createServer`, construct
+   `const semaphore = new ExecutionSemaphore(deps.concurrency?.maxConcurrent ?? 4, deps.concurrency?.maxQueueDepth ?? 8)`
+   — defaults per ADR: cap 4, queue depth 8 (a small bounded depth).
+3. In the `/v1/execute` handler, **after** the existing auth check, canary
+   503 check, and all request validation (`runId`/`tool`/`limits`), but
+   **before** `createWorkspace`, acquire a slot:
+   ```ts
+   let release: () => void;
+   try {
+     release = await semaphore.acquire();
+   } catch (err) {
+     if (err instanceof SandboxAtCapacityError) {
+       logger.warn({ event: "sandbox.at_capacity" }, "rejected /v1/execute: at capacity");
+       reply.code(503);
+       return reply.send({ error: "ERR_SANDBOX_AT_CAPACITY" });
+     }
+     throw err;
+   }
+   ```
+   Then move `createWorkspace` **inside** the existing `try`/`finally` (it
+   must not run before the slot is acquired — never reserve a workspace for
+   a request about to be rejected) and call `release()` in the **same**
+   `finally` that already calls `cleanupWorkspace`, so the slot is freed on
+   every path: success, `runJailFn` throwing, or `createWorkspace` itself
+   throwing.
+4. Import `ExecutionSemaphore, SandboxAtCapacityError` from `./concurrency`.
+
+All prior Task 7 gates are preserved exactly (auth-first, canary-503,
+cleanup-in-finally) — this only inserts the acquire/release around workspace
+creation and jail execution; nothing is reordered ahead of the earlier gates.
+
+- [ ] **Step 13: Add the server-level concurrency-cap test**
+
+Add to `packages/sandbox/test/server.test.ts` a test that constructs the
+server with `concurrency: { maxConcurrent: 1, maxQueueDepth: 0 }` and a
+`runJailFn` controlled by a deferred promise, plus a second deferred
+resolved the instant `runJailFn` is entered (so the test can `await` real
+confirmation that request A holds the only slot, instead of polling or
+sleeping). Fire request A (acquires the only slot, blocks inside
+`runJailFn`); once confirmed entered, fire request B concurrently on the
+same app instance → assert B gets HTTP 503 with body
+`{ error: "ERR_SANDBOX_AT_CAPACITY" }` and that `runJailFn` was invoked only
+**once** (B never reached the jail). Then resolve A's deferred outcome and
+assert A completes 200 with the expected body. Use a `runId` distinct from
+the file's shared `RUN_ID` constant for this test, since request A performs
+a real `createWorkspace`/`cleanupWorkspace` cycle and Fastify's `inject()`
+can resolve a response slightly before the handler's own `finally` block
+(the async cleanup + `release()`) has actually finished running — reusing
+the shared `RUN_ID` across tests risks an `EEXIST` race on the workspace
+directory; a dedicated `runId` for this test avoids it entirely.
+
+Run: `corepack pnpm --filter @openrupiv/sandbox test`
+Expected: PASS — full suite green, including the new concurrency-cap server
+test and all `concurrency.test.ts` cases.
+
+- [ ] **Step 14: Typecheck and commit**
+
+Run: `corepack pnpm --filter @openrupiv/sandbox typecheck`
+Expected: no errors.
+
+```bash
+git add packages/sandbox/src/concurrency.ts packages/sandbox/src/server.ts \
+  packages/sandbox/test/concurrency.test.ts packages/sandbox/test/server.test.ts
+git commit -s -m "sandbox: supervisor-level concurrency cap for /v1/execute (ADR-0007)"
 ```
 
 ---
