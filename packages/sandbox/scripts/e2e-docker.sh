@@ -27,8 +27,16 @@ trap cleanup EXIT
 echo "e2e-docker: preflight — can this environment create user namespaces at all?"
 if ! docker run --rm --security-opt seccomp=packages/sandbox/docker-seccomp.json --security-opt apparmor=unconfined \
     debian:bookworm-slim bash -c "apt-get update -qq >/dev/null && apt-get install -y -qq bubblewrap >/dev/null && bwrap --unshare-user --unshare-net --die-with-parent -- true" >/tmp/e2e-preflight.log 2>&1; then
-  echo "e2e-docker: SKIP — this environment cannot create Linux user namespaces (see plan's Global Constraints). Real isolation proof deferred to CI on GitHub Actions."
   cat /tmp/e2e-preflight.log
+  # A SKIP that reports green is a FALSE proof signal. When the caller asserts
+  # the proof MUST run (CI, after the runner-side
+  # kernel.apparmor_restrict_unprivileged_userns=0 fix), turn the skip into a
+  # hard failure so a regression surfaces as red CI, never a vacuous green.
+  if [[ -n "${SANDBOX_E2E_REQUIRE_PROOF:-}" ]]; then
+    echo "e2e-docker: FAIL — SANDBOX_E2E_REQUIRE_PROOF is set but this environment cannot create user namespaces, so the real isolation proof did NOT run. In CI this means the runner-side 'sysctl kernel.apparmor_restrict_unprivileged_userns=0' step is not taking effect (or bwrap hit a different namespace restriction — see the preflight log above)." >&2
+    exit 1
+  fi
+  echo "e2e-docker: SKIP — this environment cannot create Linux user namespaces (see plan's Global Constraints). The real isolation proof requires a bwrap-capable host; set SANDBOX_E2E_REQUIRE_PROOF=1 to make this a hard failure instead of a skip."
   exit 0
 fi
 echo "e2e-docker: preflight OK — this environment supports the isolation mechanism."
