@@ -134,12 +134,29 @@ describe("openrupiv new — scaffold", () => {
 
     const ws = path.join(tmp, "my-workspace");
     const compose = parseYaml(read(ws, "docker-compose.yaml")) as {
-      services: Record<string, { networks?: string[] | Record<string, unknown>; ports?: string[] }>;
+      services: Record<
+        string,
+        {
+          networks?: string[] | Record<string, unknown>;
+          ports?: string[];
+          read_only?: boolean;
+          tmpfs?: string[];
+        }
+      >;
       networks?: Record<string, { internal?: boolean }>;
     };
     expect(compose.services["sandbox"]).toBeDefined();
     expect(compose.services["sandbox"]?.ports).toBeUndefined();
     expect(compose.networks?.["sandbox-internal"]?.internal).toBe(true);
+
+    // /workspaces must be a writable tmpfs even though the rest of the
+    // sandbox's filesystem is read-only — per-run workspace directories
+    // (createWorkspace) and the boot-canary's workspace dir are created
+    // at runtime and would otherwise hit EROFS.
+    expect(compose.services["sandbox"]?.read_only).toBe(true);
+    expect(compose.services["sandbox"]?.tmpfs).toEqual(
+      expect.arrayContaining(["/tmp", "/workspaces"]),
+    );
 
     const env = read(ws, ".env");
     expect(env).toMatch(/SANDBOX_TOKEN=[0-9a-f]{32,}/);

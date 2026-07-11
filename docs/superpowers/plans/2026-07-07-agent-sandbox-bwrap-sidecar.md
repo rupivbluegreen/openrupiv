@@ -3369,7 +3369,13 @@ services:
       dockerfile: packages/sandbox/Dockerfile
     read_only: true
     tmpfs:
+      # /workspaces: per-run workspace directories are created here at
+      # runtime (createWorkspace) and must be writable even though the
+      # rest of the image's filesystem is read-only. In-memory and wiped
+      # on every container restart — correct for ephemeral, per-run
+      # workspaces; nothing persists to disk.
       - /tmp
+      - /workspaces
     security_opt:
       - seccomp=\${OPENRUPIV_REPO}/packages/sandbox/docker-seccomp.json
       - apparmor=unconfined

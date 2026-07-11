@@ -65,6 +65,11 @@ ENV SANDBOX_PYTHON_ROOT=/usr \
     SANDBOX_WORKSPACE_ROOT=/workspaces \
     PORT=8443
 
+# Harmless fallback for a bare `docker run` with no tmpfs mount. In the
+# real deployed posture (Compose/e2e-docker.sh), /workspaces is a writable
+# tmpfs mounted at container-start over this directory — this image-layer
+# copy is masked and per-run/boot-canary subdirectories are created at
+# runtime instead (see bin/serve.mjs and src/workspace.ts's createWorkspace).
 RUN mkdir -p /workspaces
 
 # Runs as root (unlike @openrupiv/runtime): bwrap's unprivileged-user-

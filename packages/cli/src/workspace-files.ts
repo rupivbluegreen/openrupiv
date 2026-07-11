@@ -57,7 +57,8 @@ app: null
 
 function gitignore(): string {
   return `# Local secrets and machine-specific configuration — never commit.
-# .env holds SESSION_SECRET and the OPENRUPIV_REPO path for docker compose.
+# .env holds SESSION_SECRET, SANDBOX_TOKEN, and the OPENRUPIV_REPO path for
+# docker compose.
 .env
 
 # Dependencies and logs.
@@ -148,7 +149,13 @@ services:
       dockerfile: packages/sandbox/Dockerfile
     read_only: true
     tmpfs:
+      # /workspaces: per-run workspace directories are created here at
+      # runtime (createWorkspace) and must be writable even though the
+      # rest of the image's filesystem is read-only. In-memory and wiped
+      # on every container restart — correct for ephemeral, per-run
+      # workspaces; nothing persists to disk.
       - /tmp
+      - /workspaces
     security_opt:
       - seccomp=\${OPENRUPIV_REPO}/packages/sandbox/docker-seccomp.json
       - apparmor=unconfined
@@ -344,7 +351,7 @@ is OIDC-only from the first commit (ADR-0003).
 openrupiv.yaml        workspace config (spec v0.1)
 docker-compose.yaml   local dev stack (postgres + dex + runtime)
 dex/config.yaml       DEV-ONLY IdP configuration
-.env                  SESSION_SECRET + OPENRUPIV_REPO (gitignored)
+.env                  SESSION_SECRET + SANDBOX_TOKEN + OPENRUPIV_REPO (gitignored)
 app/                  generated app — appears after \`openrupiv generate\`
 \`\`\`
 

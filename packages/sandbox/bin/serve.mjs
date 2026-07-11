@@ -4,6 +4,7 @@
 // via the real assertion jail, then serves. Any canary failure still
 // starts the HTTP server (so /healthz can report WHY) but /v1/execute
 // refuses every request per ADR-0007's fail-closed contract.
+import { mkdirSync } from "node:fs";
 import { configFromEnv } from "../src/config.ts";
 import { createServer } from "../src/server.ts";
 import { runBootCanary } from "../src/canary.ts";
@@ -14,6 +15,14 @@ const logger = createLogger();
 
 async function main() {
   const config = configFromEnv();
+
+  // The canary's workspace is NOT created by createWorkspace (that only
+  // runs for real /v1/execute calls) and the Dockerfile's `mkdir -p
+  // /workspaces` is masked at runtime by the tmpfs Compose/`docker run`
+  // mounts there — so this fixed path must be created here, on the
+  // writable tmpfs, before every boot. Idempotent (recursive: true) and
+  // 0700 to match createWorkspace's own workspace directories.
+  mkdirSync(`${config.workspaceRoot}/boot-canary`, { recursive: true, mode: 0o700 });
 
   const canaryResult = await runBootCanary({
     runAssertionJail: async () => {

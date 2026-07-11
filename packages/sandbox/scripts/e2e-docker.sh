@@ -38,7 +38,11 @@ docker build -f packages/sandbox/Dockerfile -t "$IMAGE" .
 
 TOKEN="$(node -e 'console.log(require("crypto").randomBytes(24).toString("hex"))')"
 echo "e2e-docker: starting container..."
+# --read-only + these two tmpfs mounts mirror the generated Compose
+# `sandbox` service exactly (packages/cli/src/workspace-files.ts) — this
+# is the real deployed posture, not a looser proxy for it.
 docker run -d --name "$CONTAINER" \
+  --read-only --tmpfs /tmp --tmpfs /workspaces \
   --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
   -e SANDBOX_TOKEN="$TOKEN" \
