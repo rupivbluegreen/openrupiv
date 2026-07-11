@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "../src/server";
@@ -198,5 +198,207 @@ describe("POST /v1/execute concurrency cap (ADR-0007:361-364)", () => {
     expect(resA.statusCode).toBe(200);
     expect(resA.json()).toEqual({ ok: true, output: { echoed: true }, durationMs: 5 });
     expect(jailCallCount).toBe(1);
+  });
+});
+
+describe("POST /v1/execute duplicate concurrent runId (adversarial-review fix)", () => {
+  // A distinct runId, not shared with any other test in this file, since
+  // this test's request A creates a real workspace and holds it open.
+  const DUP_RUN_ID = "0d1a6b2e-9d0a-4d3a-8f0a-1a2b3c4d5e6f";
+
+  it("rejects a second concurrent request with the same runId with 409, without deleting the first request's still-active workspace", async () => {
+    let jailCallCount = 0;
+    const jailEntered = deferred<void>();
+    const jailGate = deferred<JailOutcome>();
+
+    const app = await createServer(
+      baseDeps({
+        runJailFn: async (_input: RunJailInput) => {
+          jailCallCount += 1;
+          jailEntered.resolve();
+          return jailGate.promise;
+        },
+      }),
+    );
+
+    const payload = {
+      runId: DUP_RUN_ID,
+      tool: "echo",
+      input: {},
+      limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 },
+    };
+
+    // Request A: creates the workspace, acquires the slot, blocks inside
+    // runJailFn (so its workspace is still "active" on disk).
+    const requestA = app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload,
+    });
+
+    // Wait for real confirmation that A has entered runJailFn -- by this
+    // point A's createWorkspace has definitely already succeeded (it's
+    // awaited before runJailFn is ever called).
+    await jailEntered.promise;
+
+    const workspaceDir = path.join(WORKSPACE_ROOT, DUP_RUN_ID);
+    await expect(stat(workspaceDir)).resolves.toBeTruthy();
+
+    // Request B: same runId, fired while A is still mid-flight. Its own
+    // createWorkspace must EEXIST -- it must be rejected with 409, and it
+    // must NEVER clean up (delete) the directory A is actively using.
+    const resB = await app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload,
+    });
+
+    expect(resB.statusCode).toBe(409);
+    expect(resB.json()).toEqual({ error: "ERR_SANDBOX_RUN_ID_IN_USE" });
+    // B never reached the jail.
+    expect(jailCallCount).toBe(1);
+
+    // The crucial assertion: A's workspace must still exist on disk -- B's
+    // rejected createWorkspace must not have triggered a cleanup of it.
+    await expect(stat(workspaceDir)).resolves.toBeTruthy();
+
+    // A still completes normally, unaffected by B's rejected attempt.
+    jailGate.resolve({ ok: true, output: { echoed: true }, durationMs: 5 });
+    const resA = await requestA;
+    expect(resA.statusCode).toBe(200);
+    expect(resA.json()).toEqual({ ok: true, output: { echoed: true }, durationMs: 5 });
+    expect(jailCallCount).toBe(1);
+  });
+});
+
+describe("POST /v1/execute limits validation (reject non-positive/non-finite)", () => {
+  it("400s on a negative wallClockMs, never invoking the jail", async () => {
+    let called = false;
+    const app = await createServer(
+      baseDeps({ runJailFn: async () => { called = true; return { ok: true, output: null, durationMs: 1 }; } }),
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: { runId: RUN_ID, tool: "echo", input: {}, limits: { wallClockMs: -1, memoryBytes: 1, maxOutputBytes: 1 } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "ERR_SANDBOX_BAD_LIMITS" });
+    expect(called).toBe(false);
+  });
+
+  it("400s on a non-numeric (NaN-producing) wallClockMs, never invoking the jail", async () => {
+    let called = false;
+    const app = await createServer(
+      baseDeps({ runJailFn: async () => { called = true; return { ok: true, output: null, durationMs: 1 }; } }),
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: { runId: RUN_ID, tool: "echo", input: {}, limits: { wallClockMs: "not-a-number", memoryBytes: 1, maxOutputBytes: 1 } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "ERR_SANDBOX_BAD_LIMITS" });
+    expect(called).toBe(false);
+  });
+
+  it("400s on a zero memoryBytes, never invoking the jail", async () => {
+    let called = false;
+    const app = await createServer(
+      baseDeps({ runJailFn: async () => { called = true; return { ok: true, output: null, durationMs: 1 }; } }),
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      payload: { runId: RUN_ID, tool: "echo", input: {}, limits: { wallClockMs: 1000, memoryBytes: 0, maxOutputBytes: 1 } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: "ERR_SANDBOX_BAD_LIMITS" });
+    expect(called).toBe(false);
+  });
+});
+
+describe("POST /v1/execute default concurrency cap (ADR-0007 mandated default of 4)", () => {
+  // Distinct runIds for all 5 requests -- Finding 1's fix means a duplicate
+  // concurrent runId is now rejected outright, so this test (which needs 5
+  // genuinely concurrent in-flight requests) must not collide with itself.
+  const RUN_IDS = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+    "44444444-4444-4444-8444-444444444444",
+    "55555555-5555-4555-8555-555555555555",
+  ];
+
+  it("holds exactly 4 concurrent jails with the default cap (no concurrency override) and queues a 5th until a slot frees", async () => {
+    let jailCallCount = 0;
+    const gates = RUN_IDS.map(() => deferred<JailOutcome>());
+    const entered = RUN_IDS.map(() => deferred<void>());
+
+    const app = await createServer(
+      // No `concurrency` override in deps -- this exercises ADR-0007's
+      // mandated DEFAULT supervisor-level cap (maxConcurrent=4,
+      // maxQueueDepth=8), not an overridden test value.
+      baseDeps({
+        runJailFn: async (_input: RunJailInput) => {
+          const idx = jailCallCount;
+          jailCallCount += 1;
+          entered[idx]!.resolve();
+          return gates[idx]!.promise;
+        },
+      }),
+    );
+
+    const fire = (runId: string) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/execute",
+        headers: { authorization: `Bearer ${TOKEN}` },
+        payload: { runId, tool: "echo", input: {}, limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 } },
+      });
+
+    // Fire 4 distinct-runId requests -- with the default cap of 4, all four
+    // must reach the jail concurrently.
+    const first4 = RUN_IDS.slice(0, 4).map(fire);
+    await Promise.all(entered.slice(0, 4).map((d) => d.promise));
+    expect(jailCallCount).toBe(4);
+
+    // Fire a 5th, distinct-runId request. The default queue depth is 8, so
+    // it must queue (not 503) -- but with all 4 slots already busy, it must
+    // NOT reach the jail yet.
+    let fifthSettled = false;
+    const fifth = fire(RUN_IDS[4]!);
+    fifth.then(() => {
+      fifthSettled = true;
+    });
+
+    // Let the event loop fully drain. Nothing between firing the 5th
+    // request and its `await semaphore.acquire()` involves a timer or real
+    // I/O, so this proves it is genuinely still blocked there (queued),
+    // not just "hasn't been scheduled yet".
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(jailCallCount).toBe(4);
+    expect(fifthSettled).toBe(false);
+
+    // Release one of the first 4 -- its slot must transfer FIFO to the
+    // queued 5th request, which should now enter the jail.
+    gates[0]!.resolve({ ok: true, output: { echoed: true }, durationMs: 5 });
+    await entered[4]!.promise;
+    expect(jailCallCount).toBe(5);
+
+    // Drain the rest so nothing is left hanging.
+    for (let i = 1; i < 5; i++) {
+      gates[i]!.resolve({ ok: true, output: { echoed: true }, durationMs: 5 });
+    }
+    const results = await Promise.all([...first4, fifth]);
+    for (const res of results) {
+      expect(res.statusCode).toBe(200);
+    }
   });
 });

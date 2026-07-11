@@ -97,7 +97,7 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
       memoryBytes: Number(body.limits?.memoryBytes ?? 0),
       maxOutputBytes: Number(body.limits?.maxOutputBytes ?? 0),
     };
-    if (!limits.wallClockMs || !limits.memoryBytes || !limits.maxOutputBytes) {
+    if (!isPositiveFiniteLimit(limits.wallClockMs) || !isPositiveFiniteLimit(limits.memoryBytes) || !isPositiveFiniteLimit(limits.maxOutputBytes)) {
       reply.code(400);
       return reply.send({ error: "ERR_SANDBOX_BAD_LIMITS" });
     }
@@ -114,22 +114,42 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
       throw err;
     }
 
+    // release() must run on every path from here on (409, success, or any
+    // throw) -- the slot is never leaked. Nested inside: cleanupWorkspace
+    // must run ONLY for a workspace this request actually created. A
+    // duplicate concurrent runId must never let request B delete request
+    // A's still-active jail workspace (see workspace.ts's createWorkspace:
+    // EEXIST means someone else already owns this runId's directory).
     try {
-      const workspaceHostPath = await createWorkspace(runId, deps.workspaceRoot);
-      const outcome = await runJailFn({
-        entrypointPath,
-        workspaceHostPath,
-        pythonRoot: deps.pythonRoot,
-        toolRoot: deps.toolRoot,
-        seccompBpfPath: deps.seccompBpfPath,
-        limits,
-      });
-      reply.code(200);
-      return reply.send(outcome);
+      let workspaceHostPath: string;
+      try {
+        workspaceHostPath = await createWorkspace(runId, deps.workspaceRoot);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code === "EEXIST") {
+          logger.warn({ event: "sandbox.run_id_in_use", runId }, "rejected /v1/execute: runId already in flight");
+          reply.code(409);
+          return reply.send({ error: "ERR_SANDBOX_RUN_ID_IN_USE" });
+        }
+        throw err;
+      }
+
+      // We own this workspace now; its cleanup -- and only its cleanup --
+      // is ours to run.
+      try {
+        const outcome = await runJailFn({
+          entrypointPath,
+          workspaceHostPath,
+          pythonRoot: deps.pythonRoot,
+          toolRoot: deps.toolRoot,
+          seccompBpfPath: deps.seccompBpfPath,
+          limits,
+        });
+        reply.code(200);
+        return reply.send(outcome);
+      } finally {
+        await cleanupWorkspace(runId, deps.workspaceRoot, logger);
+      }
     } finally {
-      // release() must always run alongside cleanup, even if createWorkspace
-      // or runJailFn threw -- the slot is never leaked.
-      await cleanupWorkspace(runId, deps.workspaceRoot, logger);
       release();
     }
   });
@@ -139,4 +159,11 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Rejects 0, NaN/Infinity, and negatives -- every sandbox limit must be a
+ * genuine positive, finite bound. `!x` alone (the prior check) let negative
+ * values like `wallClockMs: -1` through, since `-1` is truthy. */
+function isPositiveFiniteLimit(n: number): boolean {
+  return Number.isFinite(n) && n > 0;
 }

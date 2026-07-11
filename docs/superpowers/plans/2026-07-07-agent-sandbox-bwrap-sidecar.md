@@ -2357,6 +2357,93 @@ git add packages/sandbox/src/concurrency.ts packages/sandbox/src/server.ts \
 git commit -s -m "sandbox: supervisor-level concurrency cap for /v1/execute (ADR-0007)"
 ```
 
+- [ ] **Step 15: Fix round — adversarial review of Task 7 (cross-request workspace destruction + hardening)**
+
+An adversarial review of Steps 1-14 found one Important data-integrity
+hazard and two Minor hardening gaps, all in `server.ts`'s `/v1/execute`
+handler:
+
+1. **(Important) Duplicate concurrent `runId` could destroy another
+   request's active workspace.** `createWorkspace` does
+   `mkdir(dir, { recursive: false })`, which throws `EEXIST` if a request
+   with the same `runId` is already in flight. Because `createWorkspace`
+   sat inside the same `try` whose `finally` unconditionally ran
+   `cleanupWorkspace(runId, ...)`, a *second* concurrent request reusing an
+   in-flight `runId` would have its own `createWorkspace` throw `EEXIST`,
+   fall into that `finally`, and `rm -r` the **shared** directory — deleting
+   the *first* (still-running) request's active jail workspace out from
+   under it. Two authenticated callers, or a single buggy/retrying client
+   reusing a `runId`, could corrupt each other's runs this way.
+
+   Fixed by restructuring the handler so cleanup only ever runs for the
+   workspace *this* request actually created, while the semaphore slot is
+   *always* released regardless of which path is taken:
+   ```ts
+   try {
+     let workspaceHostPath: string;
+     try {
+       workspaceHostPath = await createWorkspace(runId, deps.workspaceRoot);
+     } catch (err) {
+       if ((err as NodeJS.ErrnoException)?.code === "EEXIST") {
+         logger.warn({ event: "sandbox.run_id_in_use", runId }, "rejected /v1/execute: runId already in flight");
+         reply.code(409);
+         return reply.send({ error: "ERR_SANDBOX_RUN_ID_IN_USE" });
+       }
+       throw err;
+     }
+     try {
+       const outcome = await runJailFn({ /* ...unchanged... */ });
+       reply.code(200);
+       return reply.send(outcome);
+     } finally {
+       await cleanupWorkspace(runId, deps.workspaceRoot, logger);
+     }
+   } finally {
+     release();
+   }
+   ```
+   A duplicate concurrent `runId` now gets a typed `409 ERR_SANDBOX_RUN_ID_IN_USE`
+   and never touches the first request's workspace; the first request's
+   `cleanupWorkspace` call is reached only via its *own* successful
+   `createWorkspace`. `createWorkspace`'s `0700`/`recursive: false`/runId
+   validation behavior in `workspace.ts` is unchanged.
+
+2. **(Minor) Non-positive limits leaked through.** The prior check
+   (`!limits.wallClockMs || !limits.memoryBytes || !limits.maxOutputBytes`)
+   rejected `0`/`NaN` but not negatives — `wallClockMs: -1` is truthy and
+   passed straight through. Tightened via a helper,
+   `isPositiveFiniteLimit(n) = Number.isFinite(n) && n > 0`, applied to all
+   three limits; anything failing it still gets the existing
+   `400 ERR_SANDBOX_BAD_LIMITS`.
+
+3. **(Minor) The ADR-mandated default cap of 4 was untested.** Every
+   existing concurrency test overrode `concurrency: {...}`; none exercised
+   `createServer`'s actual default (`maxConcurrent ?? 4`,
+   `maxQueueDepth ?? 8`). Added a test that, with no `concurrency` override,
+   fires 4 concurrent long-held requests (all reaching the jail) plus a 5th
+   that queues (not 503) until one of the 4 releases.
+
+Tests added to `packages/sandbox/test/server.test.ts` (all distinct-runId
+per test to avoid cross-test collisions, since Finding 1's fix now makes a
+duplicate concurrent `runId` a hard rejection):
+- `"rejects a second concurrent request with the same runId with 409, without deleting the first request's still-active workspace"`
+  (asserts the workspace directory still exists on disk while request A is
+  mid-flight, that `runJailFn` was only ever invoked once, and that A still
+  completes 200 unaffected).
+- Three limits-validation tests: negative `wallClockMs`, a non-numeric
+  (`NaN`-producing) `wallClockMs`, and a zero `memoryBytes` — each asserting
+  `400 ERR_SANDBOX_BAD_LIMITS` and that the jail was never invoked.
+- `"holds exactly 4 concurrent jails with the default cap (no concurrency override) and queues a 5th until a slot frees"`.
+
+Run: `corepack pnpm --filter @openrupiv/sandbox test && corepack pnpm --filter @openrupiv/sandbox typecheck`
+Expected: PASS, no errors.
+
+```bash
+git add packages/sandbox/src/server.ts packages/sandbox/test/server.test.ts \
+  docs/superpowers/plans/2026-07-07-agent-sandbox-bwrap-sidecar.md
+git commit -s -m "sandbox: fix cross-request workspace destruction on duplicate runId (adversarial review)"
+```
+
 ---
 
 ### Task 8: `createSidecarSandbox` HTTP client
