@@ -172,13 +172,13 @@ services:
       # container's /proc. (Human-review note: this is a deliberate sandbox
       # posture choice — see packages/sandbox/README.md "Status, honestly".)
       - systempaths=unconfined
-    # NOTE (maintainer hardening, deferred): `cap_drop: ALL` would shrink the
+    # NOTE (maintainer hardening, deferred): cap_drop ALL would shrink the
     # post-escape blast radius, but bwrap running as root here needs to map a
-    # uid/gid range and fails ("setting up uid map: Operation not permitted")
+    # uid/gid range and fails (setting up uid map: Operation not permitted)
     # once its caps are dropped. Doing this correctly means running the
     # supervisor as a NON-root user (which maps only its single uid and needs
-    # no caps) with a user-writable `/workspaces` tmpfs — a focused follow-up,
-    # see packages/sandbox/README.md's "ADR amendments" section.
+    # no caps) with a user-writable /workspaces tmpfs — a focused follow-up,
+    # see packages/sandbox/README.md "ADR amendments" section.
     environment:
       SANDBOX_TOKEN: \${SANDBOX_TOKEN:?set SANDBOX_TOKEN in .env (openrupiv new generates it)}
     networks:
