@@ -1,13 +1,15 @@
 /**
  * Runtime configuration from the environment, per specs/phase-1-contracts.md §2.
  *
- * SECURITY: this module enforces two hard gates —
+ * SECURITY: this module enforces hard gates —
  *  - SESSION_SECRET must be at least 32 characters (session cookies are
- *    HMAC-signed with it), and
+ *    HMAC-signed with it),
  *  - the bundled dev-only OIDC client secret is refused unless
- *    OPENRUPIV_DEV_MODE=true (ADR-0002).
- * Both are re-checked in `createServer` (defense in depth against configs
- * built without `configFromEnv`).
+ *    OPENRUPIV_DEV_MODE=true (ADR-0002), and
+ *  - the optional sandbox sidecar gate (ADR-0007): SANDBOX_URL/SANDBOX_TOKEN
+ *    are paired, the token is >= 32 chars, and the URL is well-formed.
+ * All are re-checked in `assertRuntimeConfig` (which `createServer` runs), so
+ * a config built without `configFromEnv` cannot bypass them (defense in depth).
  */
 
 import { RuntimeError } from "./errors";
@@ -37,6 +39,8 @@ export const DEV_CLIENT_SECRET = "openrupiv-dev-secret";
 
 export const MIN_SESSION_SECRET_LENGTH = 32;
 
+export const MIN_SANDBOX_TOKEN_LENGTH = 32;
+
 function readVar(env: NodeJS.ProcessEnv, name: string): string | undefined {
   const value = env[name];
   if (value === undefined || value.trim() === "") return undefined;
@@ -51,6 +55,36 @@ function isValidUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Problems with the optional sandbox sidecar gate (ADR-0007). Shared by
+ * `configFromEnv` (env) and `assertRuntimeConfig` (a built config) so the two
+ * paths cannot drift — a hand-built config gets exactly the same checks as an
+ * env-derived one. Empty array = valid (including "both unset" = agents off).
+ * `SANDBOX_URL`/`SANDBOX_TOKEN` are paired: both enable governed agent tool
+ * execution, or neither — a half-set pair is a misconfiguration (the runtime
+ * could not reach the sidecar), not a silent no-op.
+ */
+function sandboxConfigProblems(
+  sandboxUrl: string | undefined,
+  sandboxToken: string | undefined,
+): string[] {
+  const problems: string[] = [];
+  if (sandboxUrl !== undefined && !isValidUrl(sandboxUrl)) {
+    problems.push(`SANDBOX_URL is not a valid URL: ${JSON.stringify(sandboxUrl)}`);
+  }
+  if (sandboxToken !== undefined && sandboxToken.length < MIN_SANDBOX_TOKEN_LENGTH) {
+    problems.push(
+      `SANDBOX_TOKEN must be at least ${MIN_SANDBOX_TOKEN_LENGTH} characters (got ${sandboxToken.length})`,
+    );
+  }
+  if ((sandboxUrl === undefined) !== (sandboxToken === undefined)) {
+    problems.push(
+      "SANDBOX_URL and SANDBOX_TOKEN must be set together (both enable agent tool execution, or neither)",
+    );
+  }
+  return problems;
 }
 
 /**
@@ -104,20 +138,12 @@ export function configFromEnv(
   const devMode = env["OPENRUPIV_DEV_MODE"] === "true";
   const mcpServersConfigPath = readVar(env, "MCP_SERVERS_CONFIG");
 
-  // Sandbox sidecar (ADR-0007). Optional and PAIRED: both enable governed
-  // agent tool execution, or neither. A half-set pair is a misconfiguration
-  // (the runtime could not reach the sidecar), not a silent no-op.
+  // Sandbox sidecar (ADR-0007). Optional and PAIRED — validated by the shared
+  // helper that assertRuntimeConfig also runs, so a hand-built config gets the
+  // same checks.
   const sandboxUrl = readVar(env, "SANDBOX_URL");
-  if (sandboxUrl !== undefined && !isValidUrl(sandboxUrl)) {
-    problems.push(`SANDBOX_URL is not a valid URL: ${JSON.stringify(sandboxUrl)}`);
-  }
   const sandboxToken = readVar(env, "SANDBOX_TOKEN");
-  if (sandboxToken !== undefined && sandboxToken.length < 32) {
-    problems.push(`SANDBOX_TOKEN must be at least 32 characters (got ${sandboxToken.length})`);
-  }
-  if ((sandboxUrl === undefined) !== (sandboxToken === undefined)) {
-    problems.push("SANDBOX_URL and SANDBOX_TOKEN must be set together (both enable agent tool execution, or neither)");
-  }
+  problems.push(...sandboxConfigProblems(sandboxUrl, sandboxToken));
 
   const baseUrl = readVar(env, "BASE_URL") ?? `http://localhost:${port}`;
   if (!isValidUrl(baseUrl)) {
@@ -173,6 +199,14 @@ export function assertRuntimeConfig(config: RuntimeConfig): void {
         "This credential is for local development only (ADR-0002). " +
         "Either configure a real identity provider, or — for local development " +
         "ONLY — set OPENRUPIV_DEV_MODE=true.",
+    );
+  }
+  const sandboxProblems = sandboxConfigProblems(config.sandboxUrl, config.sandboxToken);
+  if (sandboxProblems.length > 0) {
+    throw new RuntimeError(
+      "ERR_CONFIG",
+      `invalid sandbox configuration: ${sandboxProblems.join("; ")}`,
+      { details: sandboxProblems },
     );
   }
 }

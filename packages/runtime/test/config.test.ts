@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fixtures } from "@openrupiv/spec";
-import { configFromEnv, DEV_CLIENT_SECRET } from "../src/config";
+import { assertRuntimeConfig, configFromEnv, DEV_CLIENT_SECRET } from "../src/config";
 import { RuntimeError } from "../src/errors";
 import { createServer } from "../src/server";
 import { FakeDb } from "./helpers/fakeDb";
@@ -195,5 +195,52 @@ describe("dev credential refusal (ADR-0002)", () => {
         oidcProvider: unreachableOidcProvider,
       }),
     ).rejects.toMatchObject({ code: "ERR_CONFIG" });
+  });
+});
+
+describe("assertRuntimeConfig re-checks the sandbox gate (defense in depth)", () => {
+  const VALID_TOKEN = "test-only-sandbox-token-not-a-secret-xx"; // >= 32 chars
+
+  it("accepts a valid paired sandbox config", () => {
+    expect(() =>
+      assertRuntimeConfig(
+        testConfig({ sandboxUrl: "http://sandbox:8443", sandboxToken: VALID_TOKEN }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts a config with the sandbox unset (agents off)", () => {
+    expect(() => assertRuntimeConfig(testConfig())).not.toThrow();
+  });
+
+  // The gap this closes: configFromEnv validated these, but a hand-built
+  // config reaching createServer/assertRuntimeConfig directly did not — a
+  // <32-char token used to fail *open*.
+  it("rejects a hand-built config with a SANDBOX_TOKEN shorter than 32 chars", () => {
+    expectRuntimeError(
+      () => assertRuntimeConfig(testConfig({ sandboxUrl: "http://sandbox:8443", sandboxToken: "short" })),
+      "ERR_CONFIG",
+    );
+  });
+
+  it("rejects a hand-built half-set pair (url without token)", () => {
+    expectRuntimeError(
+      () => assertRuntimeConfig(testConfig({ sandboxUrl: "http://sandbox:8443" })),
+      "ERR_CONFIG",
+    );
+  });
+
+  it("rejects a hand-built half-set pair (token without url)", () => {
+    expectRuntimeError(
+      () => assertRuntimeConfig(testConfig({ sandboxToken: VALID_TOKEN })),
+      "ERR_CONFIG",
+    );
+  });
+
+  it("rejects a hand-built config with an invalid SANDBOX_URL", () => {
+    expectRuntimeError(
+      () => assertRuntimeConfig(testConfig({ sandboxUrl: "not a url", sandboxToken: VALID_TOKEN })),
+      "ERR_CONFIG",
+    );
   });
 });
