@@ -23,6 +23,18 @@ const FORMAT_VERSION = "v1";
  */
 export type CookiePurpose = "session" | "txn";
 
+/**
+ * Identity namespaces reserved for machine actors (agent runtime,
+ * specs/phase-2-contracts.md §4; A2A, §6). No human OIDC sub may carry
+ * either prefix — enforced at session creation so the namespaces can never
+ * collide with a real human identity.
+ */
+export const RESERVED_IDENTITY_PREFIXES = ["agent:", "a2a:"] as const;
+
+export function hasReservedIdentityPrefix(sub: string): boolean {
+  return RESERVED_IDENTITY_PREFIXES.some((prefix) => sub.startsWith(prefix));
+}
+
 export const SESSION_COOKIE_NAME = "openrupiv_session";
 export const AUTH_TXN_COOKIE_NAME = "openrupiv_auth_txn";
 

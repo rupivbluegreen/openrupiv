@@ -10,8 +10,11 @@
  * - Login state (state, nonce, PKCE verifier) lives in a short-lived
  *   HMAC-signed HttpOnly cookie; the session is a longer-lived signed cookie
  *   (see session.ts). No server-side session store in v0.
- * - EVERY route requires a session except /healthz and /auth/*. There is no
- *   anonymous mode (ADR-0003).
+ * - EVERY route requires a session except /healthz, /auth/*, POST /mcp, and
+ *   the A2A surface (POST /a2a/v1, GET /.well-known/agent-card.json) — each
+ *   independently re-authenticates every request via its own bearer-token
+ *   check instead of this cookie gate — see `isPublicPath` below. There is
+ *   no anonymous mode (ADR-0003).
  * - Plain-http issuers are allowed ONLY in explicit dev mode; otherwise the
  *   library's HTTPS-only enforcement stands.
  */
@@ -35,6 +38,7 @@ import {
   SESSION_TTL_SECONDS,
   cookieOptions,
   createSession,
+  hasReservedIdentityPrefix,
   isSessionData,
   signPayload,
   verifyPayload,
@@ -104,8 +108,38 @@ export function defaultOidcProvider(
   };
 }
 
+/**
+ * Paths exempt from the cookie-based session gate below.
+ *
+ * `POST /mcp` and the A2A surface (`POST /a2a/v1`, `GET
+ * /.well-known/agent-card.json`) are NOT anonymous/public routes — ADR-0003's
+ * "no anonymous mode" still holds. They are exempted here only from THIS
+ * cookie check because their callers are never browsers and never hold a
+ * session cookie: `registerMcpServer` (mounted in server.ts) independently
+ * re-authenticates every `/mcp` request via its own bearer-token check
+ * (`verifyToken`, currently the platform's own signed session token
+ * presented as a Bearer header instead of a Cookie — see
+ * mcp-capabilities.ts/server.ts), and `registerA2aEndpoint` (a2a.ts)
+ * independently re-authenticates every `/a2a/v1` request via a per-client
+ * shared-secret bearer check. Both 401 on a missing/invalid token
+ * themselves, same as this gate does for cookies. The agent card route is
+ * genuinely public discovery metadata unless `agentCardRequireAuth` is set,
+ * in which case a2a.ts itself gates it — never this cookie-based check.
+ *
+ * SECURITY-CRITICAL — human maintainer review required (CLAUDE.md). The
+ * `/mcp` exemption is part of the Task 7 MCP-inbound-auth wiring; the A2A
+ * exemption is part of this Task 8 wiring — both are flagged
+ * PROPOSED/interim design choices awaiting maintainer sign-off
+ * (specs/phase-2-contracts.md §5/§6; this plan's Global Constraints).
+ */
 function isPublicPath(pathname: string): boolean {
-  return pathname === "/healthz" || pathname.startsWith("/auth/");
+  return (
+    pathname === "/healthz" ||
+    pathname.startsWith("/auth/") ||
+    pathname === "/mcp" ||
+    pathname === "/a2a/v1" ||
+    pathname === "/.well-known/agent-card.json"
+  );
 }
 
 function wantsHtml(request: FastifyRequest): boolean {
@@ -222,9 +256,13 @@ export function registerAuth(
   // Auth events have no DB side effect to bind to, so they append
   // BEST-EFFORT (contract §2): an audit failure is logged at error level with
   // the event preserved and never blocks login/logout. attributes carry no
-  // secrets/tokens — only subs, roles, and rejection reasons.
-  const record = (input: AuditRecordInput): Promise<void> =>
-    audit ? auditBestEffort(audit, logger, input) : Promise.resolve();
+  // secrets/tokens — only subs, roles, and rejection reasons. `auditBestEffort`
+  // now resolves to a `boolean` (a2a.ts's callers use it to decide whether to
+  // fail closed); this caller still doesn't care either way, so the value is
+  // simply discarded.
+  const record = async (input: AuditRecordInput): Promise<void> => {
+    if (audit) await auditBestEffort(audit, logger, input);
+  };
 
   // Finding "unauth-unbounded-audit-writes": bounds how often a rejected
   // session cookie durably audits, independent of the request rate.
@@ -377,6 +415,24 @@ export function registerAuth(
       throw new RuntimeError(
         "ERR_OIDC_CALLBACK",
         "ID token is missing a sub claim",
+        { statusCode: 401 },
+      );
+    }
+
+    if (hasReservedIdentityPrefix(claims.sub)) {
+      logger.warn(
+        { event: "auth.reserved_identity_rejected", sub: claims.sub },
+        "OIDC sub carries a reserved machine-identity prefix; rejecting",
+      );
+      await record({
+        event: "auth.reserved_identity_rejected",
+        actor: claims.sub,
+        actorType: "system",
+        attributes: { reason: "reserved_prefix" },
+      });
+      throw new RuntimeError(
+        "ERR_RESERVED_IDENTITY_PREFIX",
+        `OIDC sub ${JSON.stringify(claims.sub)} carries a reserved identity prefix ("agent:" or "a2a:") and cannot be used for a human session`,
         { statusCode: 401 },
       );
     }

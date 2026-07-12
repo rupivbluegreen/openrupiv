@@ -14,7 +14,9 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/formbody": "^8.0.2",
+    "@openrupiv/agents": "workspace:*",
     "@openrupiv/audit": "workspace:*",
+    "@openrupiv/mcp": "workspace:*",
     "@openrupiv/policy": "workspace:*",
     "@openrupiv/spec": "workspace:*",
     "fastify": "^5.10.0",

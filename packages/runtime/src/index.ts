@@ -17,11 +17,13 @@ export { createPgDb, type Db, type Queryable, type QueryResultLike } from "./db"
 export { applyMigrations, ensureInfraTables } from "./migrate";
 export {
   createSession,
+  hasReservedIdentityPrefix,
   isSessionData,
   signPayload,
   verifyPayload,
   cookieOptions,
   SESSION_COOKIE_NAME,
+  RESERVED_IDENTITY_PREFIXES,
   type CookiePurpose,
   type SessionData,
   type VerifyResult,
@@ -34,6 +36,24 @@ export {
   auditBestEffort,
 } from "./audit";
 export { AUDIT_READ_ROLES, registerAdminAuditRoutes } from "./admin";
+export { registerAdminAgentRoutes, AGENT_TRIGGER_ROLES, type AdminAgentsDeps } from "./admin-agents";
+export {
+  registerA2aEndpoint,
+  A2A_PROTOCOL_VERSION,
+  type A2aClientEntry,
+  type A2aConfig,
+  type A2aDeps,
+} from "./a2a";
+export {
+  DEMO_REGISTERED_TOOLS,
+  DEMO_TASK_PROCEDURES,
+  READ_VENDOR_APPLICATION_TOOL,
+  VENDOR_RISK_REVIEW_TASK,
+  isSuccessOutcome,
+  type AgentTaskOutcome,
+  type AgentTaskProcedure,
+  type AgentTaskProcedureRegistry,
+} from "./agent-tasks";
 export { escapeHtml } from "./pages";
 export {
   executeTransition,

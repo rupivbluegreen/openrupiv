@@ -25,6 +25,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AuditRecordInput } from "@openrupiv/audit";
 import type { PolicySubject } from "@openrupiv/policy";
 import { digestValue } from "./digest";
+import { createRejectedTokenLimiter } from "./rate-limit";
 import { SUPPORTED_MCP_REVISIONS, type ExposedCapability, type RegisterMcpServerOptions } from "./types";
 
 function errMessage(err: unknown): string {
@@ -79,6 +80,9 @@ function toErrorCallToolResult(message: string): { content: Array<{ type: "text"
  */
 export function registerMcpServer(app: FastifyInstance, opts: RegisterMcpServerOptions): void {
   const capsByName = new Map<string, ExposedCapability>(opts.capabilities.map((c) => [c.name, c]));
+  // Bounds durable mcp.serve_rejected appends against an unauthenticated
+  // caller hammering this publicly-mounted route — see rate-limit.ts.
+  const rejectedTokenLimiter = createRejectedTokenLimiter();
 
   app.post("/mcp", async (request: FastifyRequest, reply: FastifyReply) => {
     const bearer = extractBearer(request.headers.authorization);
@@ -93,12 +97,17 @@ export function registerMcpServer(app: FastifyInstance, opts: RegisterMcpServerO
       subject = await opts.verifyToken(bearer);
     }
     if (!subject) {
-      await safeAudit(opts, {
-        event: "mcp.serve_rejected",
-        actor: "system",
-        actorType: "system",
-        attributes: { reason: bearer ? "invalid_token" : "missing_token", channel: "mcp" },
-      });
+      // No credential value to hash for the missing-token case -- use a
+      // fixed sentinel so repeated no-bearer-at-all requests dedup against
+      // each other exactly like a repeated bad token would (rate-limit.ts).
+      if (rejectedTokenLimiter.shouldAppend(bearer ?? "")) {
+        await safeAudit(opts, {
+          event: "mcp.serve_rejected",
+          actor: "system",
+          actorType: "system",
+          attributes: { reason: bearer ? "invalid_token" : "missing_token", channel: "mcp" },
+        });
+      }
       reply.code(401);
       return reply.send(jsonRpcError(requestId, -32001, "Unauthorized"));
     }
