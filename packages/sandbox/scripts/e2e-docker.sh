@@ -121,6 +121,12 @@ echo "e2e-docker: read-vendor-application — risky record must be high risk..."
 high_result="$(call_input read-vendor-application 5000 '{"annualSpend":250000,"justification":"x"}')"
 echo "$high_result"
 echo "$high_result" | grep -q '"risk":"high"' || { echo "e2e-docker: FAIL — read-vendor-application did not return high risk for a risky record" >&2; exit 1; }
+# Delivery-discriminating: a bare "risk":"high" check is NOT enough to prove
+# input delivery — the tool also returns high for a *missing* justification, so
+# assess({}) (broken delivery) would still be "high" and pass the line above.
+# This reason is emitted ONLY when annualSpend actually arrived in input.json,
+# so it fails loudly if delivery regresses.
+echo "$high_result" | grep -q 'annualSpend 250000 exceeds' || { echo "e2e-docker: FAIL — high-risk verdict missing the annualSpend reason (input field not delivered?)" >&2; exit 1; }
 
 echo "e2e-docker: network_probe (must be blocked)..."
 net_result="$(call network_probe 5000)"
