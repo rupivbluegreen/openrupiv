@@ -172,6 +172,13 @@ services:
       # container's /proc. (Human-review note: this is a deliberate sandbox
       # posture choice — see packages/sandbox/README.md "Status, honestly".)
       - systempaths=unconfined
+    # bwrap acquires the capabilities it needs INSIDE its own unprivileged user
+    # namespace; it needs none of the container's default Docker capabilities.
+    # Dropping them all shrinks the blast radius available to any process that
+    # escaped the bwrap jail (a residual kernel-LPE risk) at zero functional
+    # cost — belt-and-suspenders with the seccomp/apparmor deltas above.
+    cap_drop:
+      - ALL
     environment:
       SANDBOX_TOKEN: \${SANDBOX_TOKEN:?set SANDBOX_TOKEN in .env (openrupiv new generates it)}
     networks:

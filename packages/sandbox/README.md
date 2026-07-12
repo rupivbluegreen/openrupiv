@@ -23,12 +23,12 @@ reviewer can trust the status claims at face value.
 ## Status, honestly
 
 - **Isolation is implemented, unit-tested, adversarially reviewed, AND now
-  empirically proven green in CI** (GitHub Actions run 29169288906, the
-  `sandbox-boot-canary` job). The real proof `scripts/e2e-docker.sh` runs
-  actual `bwrap` jails on the hosted runner and asserts, end to end: the boot
-  canary's 8 in-jail assertions pass, a happy-path tool executes, an AF_INET
-  connect is killed by the inner seccomp filter and classified
-  `violation: network_egress`, a filesystem-escape attempt is blocked
+  empirically proven green in CI** (the `sandbox-boot-canary` job). The real
+  proof `scripts/e2e-docker.sh` runs actual `bwrap` jails on the hosted runner
+  and asserts, end to end: the boot canary's 9 in-jail assertions pass, a
+  happy-path tool executes, an `AF_INET` `socket()` is killed by the inner
+  seccomp filter (the kill lands at `socket()`, before `connect()` is reached)
+  and classified `violation: network_egress`, a filesystem-escape attempt is blocked
   (host path absent in the jail), the wall-clock limit kills a stuck jail
   (~3s), and the memory limit (RLIMIT_AS) is enforced. `SANDBOX_E2E_REQUIRE_PROOF=1`
   is set for that CI job so a preflight SKIP is a hard failure — the green
@@ -188,6 +188,18 @@ review, per CLAUDE.md non-negotiable #7:
    that should be corrected to "bookworm" for consistency with the image
    it's describing.
 
+4. **`security_opt` delta count + `cap_drop`.** The ADR's "Isolation posture"
+   section says the `sandbox` service carries **"exactly two documented
+   deltas"** from Docker's defaults (the loosened seccomp profile and
+   `apparmor: unconfined`). The shipped posture has **three** `security_opt`
+   deltas -- the third, `systempaths=unconfined`, is required so each bwrap
+   jail can mount a fresh `/proc` (the kernel's `mount_too_revealing()` check
+   blocks it otherwise) and only unmasks the trusted supervisor's own `/proc`,
+   never the jail's -- **plus** a `cap_drop: ALL` (bwrap needs no container
+   capabilities; this is pure post-escape blast-radius reduction). Neither is
+   in the ADR's authoritative text; the "exactly two deltas" wording needs
+   updating to reflect the three `security_opt` deltas and the capability drop.
+
 None of these are implementation defects -- the code does the thing the
 ADR's own authoritative sections (the seccomp rule list, the Dockerfile
 base) specify. They are documentation drift in the ADR's narrative prose,
@@ -202,9 +214,10 @@ invoke real `bwrap` -- they inject a fake jail-runner, since creating Linux
 user namespaces requires a real, unnested Linux host (or a CI runner that
 is one). The REAL isolation proof is `scripts/e2e-docker.sh`, wired into
 CI as the `sandbox-boot-canary` job -- see that job's run history for
-actual evidence the isolation boundary holds, not this README's prose. As
-of this writing that job has not yet run (this branch has not yet been
-pushed to trigger it).
+actual evidence the isolation boundary holds, not this README's prose. That
+job now runs green with real `bwrap` jails on GitHub Actions (with
+`SANDBOX_E2E_REQUIRE_PROOF=1` so a preflight skip is a hard failure, never a
+vacuous green).
 
 ## Tests
 
@@ -213,5 +226,5 @@ corepack pnpm --filter @openrupiv/sandbox typecheck
 corepack pnpm --filter @openrupiv/sandbox test
 ```
 
-86 tests across 10 files, all passing locally, all against a fake
+89 tests across 10 files, all passing locally, all against a fake
 jail-runner (no real `bwrap` invoked) as described above.

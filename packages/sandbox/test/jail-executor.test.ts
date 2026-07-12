@@ -93,6 +93,27 @@ describe("runJail", () => {
     expect(outcome).toMatchObject({ ok: false, reason: "violation", violation: "network_egress" });
   });
 
+  // The prlimit backstops this module configures kill via signal on breach,
+  // which bwrap surfaces as exit 128+signum. These must classify as resource
+  // limits, not a generic tool_error (which would report a hit limit as a bug).
+  it("classifies exit code 152 (128+SIGXCPU) as a wall_clock limit", async () => {
+    const child = new FakeChild();
+    const spawn = vi.fn().mockReturnValue(child);
+    const promise = runJail(baseInput(), { spawn });
+    child.emit("exit", 152, null);
+    const outcome = await promise;
+    expect(outcome).toMatchObject({ ok: false, reason: "limit", limit: "wall_clock" });
+  });
+
+  it("classifies exit code 153 (128+SIGXFSZ) as an output_size limit", async () => {
+    const child = new FakeChild();
+    const spawn = vi.fn().mockReturnValue(child);
+    const promise = runJail(baseInput(), { spawn });
+    child.emit("exit", 153, null);
+    const outcome = await promise;
+    expect(outcome).toMatchObject({ ok: false, reason: "limit", limit: "output_size" });
+  });
+
   it("classifies a nonzero exit with EROFS-shaped stderr as fs_escape", async () => {
     const child = new FakeChild();
     const spawn = vi.fn().mockReturnValue(child);

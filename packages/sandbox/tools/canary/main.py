@@ -17,17 +17,29 @@ _DEV_NULL_RDEV = os.makedev(1, 3)  # what a /dev/null bind-mount stat()s as
 
 
 def no_network_interface() -> bool:
+    # Enumerate interfaces by reading /proc/net/dev directly. This is always
+    # present under the jail's --proc mount, needs NO external binary (the
+    # image ships no `ip`/iproute2, and an earlier version that shelled out to
+    # `ip` failed OPEN — it caught the FileNotFoundError and returned True,
+    # asserting nothing), and needs no socket() (the inner seccomp filter
+    # SIGSYS-kills a non-AF_UNIX/AF_NETLINK socket). In an --unshare-net jail
+    # only loopback exists. Fail CLOSED: any read error, or any non-`lo`
+    # interface, fails the assertion.
     try:
-        import subprocess
-
-        out = subprocess.run(["ip", "-o", "link"], capture_output=True, text=True, timeout=2)
-        # Only "lo" (down, no address configured) may exist; anything else
-        # is a failed assertion. If `ip` isn't even present, absence of any
-        # working socket path is checked separately below.
-        lines = [l for l in out.stdout.splitlines() if l.strip()]
-        return all("lo:" in l or "lo@" in l for l in lines) if lines else True
-    except Exception:
-        return True
+        with open("/proc/net/dev", "r") as f:
+            content = f.read()
+    except OSError:
+        return False
+    names = []
+    for line in content.splitlines():
+        head, sep, _rest = line.partition(":")
+        if sep:  # only per-interface lines carry a colon; the 2 headers don't
+            name = head.strip()
+            if name:
+                names.append(name)
+    # `lo` (or, defensively, no interface at all) is acceptable; a routable
+    # interface such as eth0 means --unshare-net was not applied.
+    return all(name == "lo" for name in names)
 
 
 def toolchain_ro() -> bool:

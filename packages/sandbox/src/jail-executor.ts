@@ -90,6 +90,18 @@ const RLIMIT_NOFILE = 256;
 const SIGSYS = 31;
 const SIGSYS_EXIT_CODE = 128 + SIGSYS;
 
+// The same 128+signum convention (see SIGSYS note above) applies to the
+// kernel-default signal deaths from the RLIMIT_* backstops this module
+// itself configures via prlimit, so their outcomes must be classified as
+// resource limits rather than falling through to a generic tool_error:
+//   RLIMIT_CPU exceeded  -> SIGXCPU (24) -> bwrap exit 152 -> a time limit
+//                           (the belt-and-suspenders backstop for the JS
+//                           wall-clock timer, mapped to the same subtype)
+//   RLIMIT_FSIZE exceeded -> SIGXFSZ (25) -> bwrap exit 153 -> an output/
+//                           file-size limit
+const SIGXCPU_EXIT_CODE = 128 + 24;
+const SIGXFSZ_EXIT_CODE = 128 + 25;
+
 // fs_escape is a best-effort STDERR LABEL only — real fs-escape enforcement
 // is bwrap's mount namespace (RO binds -> EROFS; absent host paths ->
 // ENOENT), not this heuristic. ENOENT ("no such file or directory") and
@@ -201,6 +213,26 @@ export function runJail(
           reason: "violation",
           violation: "network_egress",
           message: "process was killed by the inner seccomp filter (SIGSYS)",
+          durationMs,
+        });
+        return;
+      }
+      if (code === SIGXCPU_EXIT_CODE) {
+        resolve({
+          ok: false,
+          reason: "limit",
+          limit: "wall_clock",
+          message: `tool exceeded the CPU-time backstop (RLIMIT_CPU=${RLIMIT_CPU_SECONDS}s)`,
+          durationMs,
+        });
+        return;
+      }
+      if (code === SIGXFSZ_EXIT_CODE) {
+        resolve({
+          ok: false,
+          reason: "limit",
+          limit: "output_size",
+          message: `tool exceeded the file-size limit (RLIMIT_FSIZE=${RLIMIT_FSIZE_BYTES} bytes)`,
           durationMs,
         });
         return;

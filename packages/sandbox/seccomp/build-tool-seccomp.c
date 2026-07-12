@@ -44,13 +44,31 @@ int main(int argc, char **argv) {
     }
 
     /* Syscalls most consistently behind real unprivileged-userns Linux
-     * kernel privilege-escalation bugs. */
+     * kernel privilege-escalation bugs. This inner filter is deliberately
+     * SELF-SUFFICIENT: it does not rely on the outer container seccomp
+     * profile to close any of this surface, so the jail holds even if that
+     * container is ever run with a weakened/`unconfined` outer profile.
+     * That is why the modern mount API (fsopen/fsconfig/fsmount/move_mount/
+     * open_tree/fspick) is denied alongside the legacy mount()/umount2(),
+     * setns() alongside the CLONE_NEW* creation denials below, and add_key/
+     * request_key alongside keyctl() -- each is the same LPE class as a
+     * syscall already denied, and omitting them would leave the inner
+     * filter leaning on the outer profile to finish the job. */
     const int denied_syscalls[] = {
         SCMP_SYS(mount),
         SCMP_SYS(umount2),
+        SCMP_SYS(fsopen),
+        SCMP_SYS(fsconfig),
+        SCMP_SYS(fsmount),
+        SCMP_SYS(move_mount),
+        SCMP_SYS(open_tree),
+        SCMP_SYS(fspick),
+        SCMP_SYS(setns),
         SCMP_SYS(ptrace),
         SCMP_SYS(bpf),
         SCMP_SYS(keyctl),
+        SCMP_SYS(add_key),
+        SCMP_SYS(request_key),
         SCMP_SYS(userfaultfd),
         SCMP_SYS(io_uring_setup),
         SCMP_SYS(io_uring_enter),

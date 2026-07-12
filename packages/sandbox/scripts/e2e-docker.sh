@@ -35,6 +35,7 @@ echo "e2e-docker: preflight — can this environment create user namespaces at a
 # misreport a working environment as a skip. This probe now exits 0 iff the
 # full mechanism the real jail depends on works.
 if ! docker run --rm \
+    --cap-drop ALL \
     --security-opt seccomp=packages/sandbox/docker-seccomp.json \
     --security-opt apparmor=unconfined \
     --security-opt systempaths=unconfined \
@@ -63,6 +64,7 @@ echo "e2e-docker: starting container..."
 # is the real deployed posture, not a looser proxy for it.
 docker run -d --name "$CONTAINER" \
   --read-only --tmpfs /tmp --tmpfs /workspaces \
+  --cap-drop ALL \
   --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
   --security-opt systempaths=unconfined \
