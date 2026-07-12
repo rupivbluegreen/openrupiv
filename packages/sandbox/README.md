@@ -197,18 +197,21 @@ review, per CLAUDE.md non-negotiable #7:
    and only unmasks the trusted supervisor's own `/proc`, never the jail's.
    The ADR's "exactly two deltas" wording needs updating to three.
 
-5. **Deferred hardening — `cap_drop` (recommend + review).** The container
-   currently runs as **root with the default Docker capability set**. Dropping
-   the dangerous defaults (`DAC_OVERRIDE`, `NET_RAW`, `MKNOD`, `SYS_CHROOT`, …)
-   would shrink the post-escape blast radius, but `cap_drop: ALL` breaks bwrap
-   here ("setting up uid map: Operation not permitted") because bwrap-as-root
-   maps a uid/gid range that needs caps the reduced set doesn't cleanly
-   provide. Doing it correctly means running the supervisor as a **non-root
-   user** (maps only its single uid, needs no caps) with a user-writable
-   `/workspaces` tmpfs — a focused follow-up left for the maintainer rather
-   than rushed, since it interacts with the container's runtime user and mount
-   ownership. Flagged here because a cold review correctly noted bwrap needs
-   none of the container's default caps.
+5. **Non-root supervisor + `cap_drop: ALL` (applied; ADR says root).** The
+   ADR describes this as "the ONE service that runs as root." It now runs as
+   an **unprivileged user** (`Dockerfile` `USER 10001`) with **`cap_drop: ALL`**
+   on the Compose/e2e container. A non-root process creating an unprivileged
+   user namespace maps only its own single uid to root inside the jail
+   (bwrap's default) and needs NO container capabilities — so the whole
+   default Docker cap set (`DAC_OVERRIDE`, `NET_RAW`, `MKNOD`, `SYS_CHROOT`,
+   `SETUID`/`SETGID`, …) is dropped, shrinking post-escape blast radius; bwrap
+   still gets a full capability set INSIDE the jail's own userns. This
+   required mounting the `/workspaces` tmpfs `mode=1777` (a tmpfs over the
+   image's pre-existing dir otherwise inherits root-owned 0755, which a
+   non-root supervisor can't write). The ADR's "runs as root" text needs
+   updating. (Earlier attempts to `cap_drop` while still running as root
+   failed with "setting up uid map: Operation not permitted" — root maps a uid
+   *range* needing caps the reduced set doesn't provide; non-root avoids that.)
 
 None of these are implementation defects -- the code does the thing the
 ADR's own authoritative sections (the seccomp rule list, the Dockerfile

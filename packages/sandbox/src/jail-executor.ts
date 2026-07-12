@@ -73,7 +73,20 @@ export type SpawnFn = (
   opts: { stdio: Array<"ignore" | "pipe" | number> },
 ) => ChildProcessLike;
 
-const RLIMIT_NPROC = 16;
+// RLIMIT_NPROC is enforced per REAL uid, and the supervisor now runs as a
+// non-root user (Dockerfile USER 10001) that it SHARES with every jail — so
+// this cap counts the supervisor's own ~40-50 node/tsx/esbuild threads too.
+// (As root, the previous value of 16 was silently bypassed via
+// CAP_SYS_RESOURCE; under the non-root + cap_drop:ALL posture it is strictly
+// enforced, and 16 is below the supervisor's own footprint, so bwrap's fork
+// to create the jail failed with EAGAIN.) Set it high enough for the
+// supervisor plus a bounded per-jail budget. This is therefore a COARSE
+// system-pid-exhaustion guard, not a tight per-jail process cap; the real
+// per-jail bounds are the wall-clock timer and RLIMIT_AS (memory), which cap
+// any fork bomb in both time and memory regardless. A tight per-jail limit
+// would require a cgroup pids.max (out of scope; the container is cap-dropped
+// and can't manage cgroups).
+const RLIMIT_NPROC = 256;
 const RLIMIT_CPU_SECONDS = 30;
 const RLIMIT_FSIZE_BYTES = 67_108_864;
 const RLIMIT_NOFILE = 256;

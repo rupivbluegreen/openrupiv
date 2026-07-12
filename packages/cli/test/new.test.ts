@@ -141,6 +141,7 @@ describe("openrupiv new — scaffold", () => {
           ports?: string[];
           read_only?: boolean;
           tmpfs?: string[];
+          cap_drop?: string[];
         }
       >;
       networks?: Record<string, { internal?: boolean }>;
@@ -155,8 +156,12 @@ describe("openrupiv new — scaffold", () => {
     // at runtime and would otherwise hit EROFS.
     expect(compose.services["sandbox"]?.read_only).toBe(true);
     expect(compose.services["sandbox"]?.tmpfs).toEqual(
-      expect.arrayContaining(["/tmp", "/workspaces"]),
+      expect.arrayContaining(["/tmp", "/workspaces:mode=1777"]),
     );
+    // Runs non-root (Dockerfile USER 10001) with every Linux capability
+    // dropped: bwrap needs none of the container's caps — it maps its single
+    // uid and acquires a full cap set inside the jail's own userns.
+    expect(compose.services["sandbox"]?.cap_drop).toEqual(["ALL"]);
 
     const env = read(ws, ".env");
     expect(env).toMatch(/SANDBOX_TOKEN=[0-9a-f]{32,}/);
