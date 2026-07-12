@@ -32,6 +32,14 @@ describe("ensureInfraTables", () => {
       "UNIQUE (entity_table, record_id, transition, approver_sub)",
     );
   });
+
+  it("creates agent_proposals and a2a_tasks tables", async () => {
+    const db = new FakeDb();
+    await ensureInfraTables(db);
+    const statements = db.statements.map((s) => s.text);
+    expect(statements.some((s) => s.includes("CREATE TABLE IF NOT EXISTS agent_proposals"))).toBe(true);
+    expect(statements.some((s) => s.includes("CREATE TABLE IF NOT EXISTS a2a_tasks"))).toBe(true);
+  });
 });
 
 describe("applyMigrations", () => {

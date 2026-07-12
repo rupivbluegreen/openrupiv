@@ -4,10 +4,14 @@
  * exercises the REAL signing/verification path.
  */
 
+import type { AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
+import type { McpClient } from "@openrupiv/mcp";
 import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
 import type { AppSpec } from "@openrupiv/spec";
 import type { FastifyInstance } from "fastify";
+import type { A2aConfig } from "../../src/a2a";
+import type { AgentTaskProcedureRegistry } from "../../src/agent-tasks";
 import type { OidcProvider } from "../../src/auth";
 import type { RuntimeConfig } from "../../src/config";
 import type { Db } from "../../src/db";
@@ -106,6 +110,12 @@ export async function buildTestServer(
     auditStore?: AuditStore;
     /** Injected PDP; default: the real WASM engine (shared per test file). */
     policyEngine?: PolicyEngine;
+    /** Optional: governed agent runtime + task procedures (admin-agents.ts routes). */
+    agents?: { runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry };
+    /** Injected MCP client; default: createServer builds its own (inert unless configured). */
+    mcpClient?: McpClient;
+    /** Optional: A2A remote-agent surface config (a2a.ts). Requires `agents` too — see ServerDeps.a2a. */
+    a2a?: A2aConfig;
   } = {},
 ): Promise<TestServer> {
   const logger = new CapturingLogger();
@@ -116,6 +126,9 @@ export async function buildTestServer(
     oidcProvider: options.oidcProvider ?? unreachableOidcProvider,
     ...(options.auditStore ? { auditStore: options.auditStore } : {}),
     policyEngine: options.policyEngine ?? (await sharedPolicyEngine()),
+    ...(options.agents ? { agents: options.agents } : {}),
+    ...(options.mcpClient ? { mcpClient: options.mcpClient } : {}),
+    ...(options.a2a ? { a2a: options.a2a } : {}),
   });
   return { app, logger, config };
 }

@@ -174,12 +174,14 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
   async function login(
     rolesClaimValue: unknown,
     configOverride?: ReturnType<typeof testConfig>,
+    subOverride?: string,
   ) {
     const idp = makeFakeIdp({
       clientId: "test-client",
       clientSecret: "test-client-secret-not-the-dev-one",
       claims: {
         email: "dev@example.com",
+        ...(subOverride !== undefined ? { sub: subOverride } : {}),
         ...(rolesClaimValue !== undefined ? { roles: rolesClaimValue } : {}),
       },
     });
@@ -198,6 +200,7 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
     idp.setNonce(location.searchParams.get("nonce") as string);
     idp.setClaims({
       email: "dev@example.com",
+      ...(subOverride !== undefined ? { sub: subOverride } : {}),
       ...(rolesClaimValue !== undefined ? { roles: rolesClaimValue } : {}),
     });
     const txnCookie = setCookies(loginRes.headers)
@@ -265,6 +268,27 @@ describe("GET /auth/callback (full PKCE code flow against an offline IdP)", () =
       ?.slice(`${SESSION_COOKIE_NAME}=`.length) as string;
     const verified = verifyPayload<SessionData>(sessionValue, TEST_SESSION_SECRET, "session");
     expect(verified.ok && verified.payload.roles).toEqual(["compliance"]);
+  });
+
+  it("rejects an OIDC sub carrying a reserved agent: prefix", async () => {
+    const { callbackRes, logger } = await login(
+      [],
+      undefined,
+      "agent:evil@some-app",
+    );
+    expect(callbackRes.statusCode).toBe(401);
+    expect(callbackRes.json()).toMatchObject({
+      error: "ERR_RESERVED_IDENTITY_PREFIX",
+    });
+    expect(logger.find("auth.reserved_identity_rejected")).toBeDefined();
+  });
+
+  it("rejects an OIDC sub carrying a reserved a2a: prefix", async () => {
+    const { callbackRes } = await login([], undefined, "a2a:some-client");
+    expect(callbackRes.statusCode).toBe(401);
+    expect(callbackRes.json()).toMatchObject({
+      error: "ERR_RESERVED_IDENTITY_PREFIX",
+    });
   });
 
   it("rejects a callback without a login transaction cookie", async () => {

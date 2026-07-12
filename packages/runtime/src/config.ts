@@ -24,6 +24,8 @@ export interface RuntimeConfig {
   baseUrl: string; // BASE_URL, e.g. http://localhost:3000
   port: number; // PORT, default 3000
   devMode: boolean; // OPENRUPIV_DEV_MODE === "true"
+  /** Optional: absolute path to a JSON file shaped { servers: McpServerEntry[] } (@openrupiv/mcp). Absent = the MCP client is inert (no config, no egress). MCP_SERVERS_CONFIG. */
+  mcpServersConfigPath?: string;
 }
 
 /** The conspicuous dev-only client secret shipped with the Compose Dex stack. */
@@ -96,6 +98,7 @@ export function configFromEnv(
   }
 
   const devMode = env["OPENRUPIV_DEV_MODE"] === "true";
+  const mcpServersConfigPath = readVar(env, "MCP_SERVERS_CONFIG");
 
   const baseUrl = readVar(env, "BASE_URL") ?? `http://localhost:${port}`;
   if (!isValidUrl(baseUrl)) {
@@ -122,6 +125,7 @@ export function configFromEnv(
     baseUrl: baseUrl.replace(/\/+$/, "") || baseUrl,
     port,
     devMode,
+    ...(mcpServersConfigPath !== undefined ? { mcpServersConfigPath } : {}),
   };
 
   assertRuntimeConfig(config);

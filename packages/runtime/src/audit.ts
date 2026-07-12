@@ -23,8 +23,11 @@
  *   `appendOrFail`'s own error-log shape), and one `ERR_AUDIT_APPEND_FAILED`
  *   is thrown at the end if any failed.
  * - `auditBestEffort`: logs at error level with the event preserved and never
- *   throws — used only for auth events, which have no DB side effect to bind
- *   to and must not take down login/logout.
+ *   throws — returns `true`/`false` so a caller MAY react to failure (a2a.ts
+ *   fails its own request closed on a pre-dispatch append failure) but need
+ *   not (auth.ts, which has no DB side effect to bind auth events to and
+ *   must not let a broken audit database take down login/logout, ignores
+ *   the return value).
  */
 
 import {
@@ -171,18 +174,24 @@ export async function appendAllOrFail(
  * Best-effort append for auth events (no DB side effect to bind to): an
  * append failure is logged at error level WITH the event preserved, and the
  * request proceeds — a broken audit database must not brick login/logout.
+ * Returns whether the append succeeded so callers that DO want to react to
+ * failure (e.g. a2a.ts failing its own request closed on a pre-dispatch
+ * `a2a.call` append failure) can — callers that don't care (auth.ts) can
+ * simply ignore the returned boolean exactly as they ignored `void` before.
  */
 export async function auditBestEffort(
   store: AuditStore,
   logger: Logger,
   input: AuditRecordInput,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await store.append(input);
+    return true;
   } catch (error) {
     logger.error(
       { event: "audit.append_failed", auditEvent: input.event, auditRecord: input, err: error },
       "best-effort audit append failed; event preserved in this log line",
     );
+    return false;
   }
 }

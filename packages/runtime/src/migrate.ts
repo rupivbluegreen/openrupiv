@@ -13,10 +13,22 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { AGENT_PROPOSALS_DDL } from "@openrupiv/agents";
 import { AUDIT_LOG_DDL } from "@openrupiv/audit";
 import type { Db, Queryable } from "./db";
 import { RuntimeError } from "./errors";
 import type { Logger } from "./logger";
+
+/** A2A task tracking, per specs/phase-2-contracts.md §6 — runtime-owned (no @openrupiv/a2a package exists; the A2A surface lives directly in this package). */
+const A2A_TASKS_DDL = `CREATE TABLE IF NOT EXISTS a2a_tasks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id text NOT NULL,
+  skill text NOT NULL,
+  status text NOT NULL CHECK (status IN ('submitted','working','completed','failed')),
+  result jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+)`;
 
 export const INFRA_STATEMENTS: readonly string[] = [
   "CREATE EXTENSION IF NOT EXISTS pgcrypto",
@@ -35,6 +47,10 @@ export const INFRA_STATEMENTS: readonly string[] = [
 )`,
   // Hash-chained tamper-evident audit log (@openrupiv/audit).
   AUDIT_LOG_DDL,
+  // Governed agent HITL proposals (@openrupiv/agents).
+  AGENT_PROPOSALS_DDL,
+  // A2A task tracking (specs/phase-2-contracts.md §6).
+  A2A_TASKS_DDL,
 ];
 
 /** Create the runtime's own tables. Safe to run on every startup. */

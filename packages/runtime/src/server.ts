@@ -12,11 +12,16 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
+import type { AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
-import { createPolicyEngine, type PolicyEngine } from "@openrupiv/policy";
+import { createMcpClient, registerMcpServer, type McpClient } from "@openrupiv/mcp";
+import { createPolicyEngine, type PolicyEngine, type PolicySubject } from "@openrupiv/policy";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
+import { registerA2aEndpoint, type A2aConfig } from "./a2a";
 import { registerAdminAuditRoutes } from "./admin";
+import { registerAdminAgentRoutes } from "./admin-agents";
+import type { AgentTaskProcedureRegistry } from "./agent-tasks";
 import { createDbAuditStore } from "./audit";
 import { defaultOidcProvider, registerAuth, type OidcProvider } from "./auth";
 import { assertRuntimeConfig, configFromEnv, type RuntimeConfig } from "./config";
@@ -24,8 +29,10 @@ import { createPgDb, type Db } from "./db";
 import { registerEntityRoutes } from "./entities";
 import { RuntimeError } from "./errors";
 import { createLogger, type Logger } from "./logger";
+import { workflowInstanceStatusCapability } from "./mcp-capabilities";
 import { applyMigrations, ensureInfraTables } from "./migrate";
 import { registerPages } from "./pages";
+import { isSessionData, verifyPayload, type SessionData } from "./session";
 import { registerWorkflowRoutes } from "./workflows";
 
 /**
@@ -68,6 +75,40 @@ export async function loadAppDir(dir: string): Promise<AppSpec> {
   return result.spec;
 }
 
+/**
+ * Load an MCP client config (@openrupiv/mcp) from a JSON file at `path`.
+ * Throws ERR_CONFIG if the file is missing/unreadable, not valid JSON, or
+ * does not have a `servers` array.
+ */
+async function loadMcpServersConfig(path: string): Promise<{ servers: import("@openrupiv/mcp").McpServerEntry[] }> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new RuntimeError(
+      "ERR_CONFIG",
+      `MCP_SERVERS_CONFIG at ${path} could not be read: ${message}`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new RuntimeError(
+      "ERR_CONFIG",
+      `MCP_SERVERS_CONFIG at ${path} is not valid JSON: ${message}`,
+    );
+  }
+
+  if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { servers?: unknown }).servers)) {
+    throw new RuntimeError("ERR_CONFIG", `MCP_SERVERS_CONFIG at ${path} must be a JSON object with a "servers" array`);
+  }
+  return parsed as { servers: import("@openrupiv/mcp").McpServerEntry[] };
+}
+
 /** Injection seams for tests (fake Db, offline OIDC, capturing logger). */
 export interface ServerDeps {
   db?: Db;
@@ -77,6 +118,18 @@ export interface ServerDeps {
   auditStore?: AuditStore;
   /** Deny-by-default PDP; defaults to the committed OPA WASM bundle (ADR-0006). */
   policyEngine?: PolicyEngine;
+  /**
+   * Optional: governed agent runtime + task procedures. Absent by default —
+   * no real ToolSandbox ships yet (packages/sandbox, ADR-0007), so the
+   * agent-trigger/proposal-listing routes are only registered when a caller
+   * explicitly supplies one (tests inject a fake sandbox; there is no
+   * production default to fall back to — never stub the sandbox boundary).
+   */
+  agents?: { runtime: AgentRuntime; procedures: AgentTaskProcedureRegistry };
+  /** MCP client (consumes external MCP servers as connectors). Defaults to one built from config.mcpServersConfigPath (inert if unset). */
+  mcpClient?: McpClient;
+  /** Optional: A2A remote-agent surface. Requires BOTH `agents` above (a real dispatch target) and a non-empty client registry — absent either, the endpoint is not mounted. */
+  a2a?: A2aConfig;
 }
 
 /** Build the Fastify server (exported for tests). Does not listen. */
@@ -94,6 +147,12 @@ export async function createServer(
   const ownsDb = deps.db === undefined;
   const auditStore = deps.auditStore ?? createDbAuditStore(db, logger);
   const policyEngine = deps.policyEngine ?? (await createPolicyEngine());
+  const mcpClient =
+    deps.mcpClient ??
+    (await createMcpClient(
+      config.mcpServersConfigPath ? await loadMcpServersConfig(config.mcpServersConfigPath) : { servers: [] },
+      { policy: policyEngine, audit: auditStore },
+    ));
 
   const app = Fastify({ logger: false });
 
@@ -160,6 +219,42 @@ export async function createServer(
     logger,
     appRoles: spec.app.roles ?? [],
   });
+  if (deps.agents) {
+    registerAdminAgentRoutes(app, {
+      runtime: deps.agents.runtime,
+      procedures: deps.agents.procedures,
+      policy: policyEngine,
+      audit: auditStore,
+      logger,
+      appRoles: spec.app.roles ?? [],
+    });
+  }
+  if (deps.agents && deps.a2a) {
+    registerA2aEndpoint(app, {
+      spec,
+      config: deps.a2a,
+      agentRuntime: deps.agents.runtime,
+      procedures: deps.agents.procedures,
+      policy: policyEngine,
+      audit: auditStore,
+      db,
+      logger,
+    });
+  }
+  registerMcpServer(app, {
+    capabilities: [workflowInstanceStatusCapability(spec, db)],
+    policy: policyEngine,
+    audit: auditStore,
+    // Interim, PROPOSED (flagged for maintainer sign-off, see this plan's
+    // header): verify the bearer as the platform's own signed session
+    // token, reusing the already-reviewed session.ts verification path,
+    // rather than validating an arbitrary third-party OIDC access token.
+    async verifyToken(bearer: string): Promise<PolicySubject | null> {
+      const verified = verifyPayload<SessionData>(bearer, config.sessionSecret, "session");
+      if (!verified.ok || !isSessionData(verified.payload)) return null;
+      return { id: verified.payload.sub, roles: verified.payload.roles };
+    },
+  });
   registerPages(app, spec, db, logger);
 
   // Structured request log. Never the query string (OAuth codes/states),
@@ -185,6 +280,12 @@ export async function createServer(
       await db.end();
     });
   }
+
+  // The MCP client is always either constructed here or injected by a test —
+  // unlike `db`, there is no "caller owns it" case to guard against.
+  app.addHook("onClose", async () => {
+    await mcpClient.close();
+  });
 
   return app;
 }
