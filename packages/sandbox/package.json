@@ -1,0 +1,19 @@
+{
+  "name": "@openrupiv/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:seccomp": "bash scripts/build-seccomp.sh"
+  },
+  "dependencies": {
+    "@openrupiv/agents": "workspace:*",
+    "fastify": "^5.10.0"
+  }
+}

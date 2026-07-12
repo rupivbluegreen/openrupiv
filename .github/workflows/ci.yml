@@ -59,6 +59,49 @@ jobs:
       - name: Rebuild and diff the committed policy bundle
         run: bash packages/policy/scripts/check-policy-wasm.sh
 
+  sandbox-seccomp:
+    name: Sandbox inner seccomp BPF matches source
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libseccomp toolchain
+        run: apt-get update && apt-get install -y gcc libseccomp-dev
+      - name: Rebuild and diff the committed seccomp BPF
+        run: bash packages/sandbox/scripts/check-seccomp-bpf.sh
+
+  sandbox-boot-canary:
+    name: Sandbox boot canary (real bwrap isolation proof)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable unprivileged user namespaces on the runner host
+        # GitHub's ubuntu-24.04 runners ship
+        # kernel.apparmor_restrict_unprivileged_userns=1: an unprivileged userns
+        # is still CREATED, but the task is transitioned onto a restricted
+        # AppArmor profile, so bwrap's loopback setup (RTM_NEWADDR, which needs
+        # CAP_NET_ADMIN in the new netns) fails with EPERM and the proof would
+        # silently SKIP. --security-opt apparmor=unconfined on the container does
+        # NOT bypass this host-kernel LSM policy. Flipping the sysctl makes the
+        # runner behave like a normal Linux deployment host with unprivileged
+        # userns enabled. It is a HOST-only relaxation: it adds no capabilities,
+        # no --privileged, and no seccomp change to the sandbox container, so the
+        # isolation actually being proven is unchanged. See
+        # packages/sandbox/README.md "Status, honestly".
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_unconfined=0 || true
+          echo "unprivileged_userns_clone=$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo n/a)"
+          echo "max_user_namespaces=$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo n/a)"
+      - name: Run the real end-to-end isolation proof
+        # SANDBOX_E2E_REQUIRE_PROOF turns a preflight SKIP into a hard failure:
+        # with the sysctl fix above the jails MUST really run, so a skip here
+        # means the fix regressed. That surfaces as RED CI, never a green that
+        # silently proved nothing.
+        env:
+          SANDBOX_E2E_REQUIRE_PROOF: "1"
+        run: bash packages/sandbox/scripts/e2e-docker.sh
+
   dco:
     name: DCO sign-off
     if: github.event_name == 'pull_request'

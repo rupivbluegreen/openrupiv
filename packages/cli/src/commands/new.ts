@@ -50,7 +50,8 @@ async function createWorkspace(name: string, deps: CliDeps): Promise<void> {
   await mkdir(target, { recursive: true });
   try {
     const sessionSecret = deps.randomBytes(32).toString("hex");
-    const files = workspaceFiles({ name, sessionSecret, repoRoot: deps.repoRoot });
+    const sandboxToken = deps.randomBytes(32).toString("hex");
+    const files = workspaceFiles({ name, sessionSecret, sandboxToken, repoRoot: deps.repoRoot });
     for (const file of files) {
       const abs = path.join(target, ...file.path.split("/"));
       await mkdir(path.dirname(abs), { recursive: true });

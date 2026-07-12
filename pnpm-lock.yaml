@@ -146,6 +146,15 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
+  packages/sandbox:
+    dependencies:
+      '@openrupiv/agents':
+        specifier: workspace:*
+        version: link:../agents
+      fastify:
+        specifier: ^5.10.0
+        version: 5.10.0
+
   packages/spec:
     dependencies:
       ajv:
