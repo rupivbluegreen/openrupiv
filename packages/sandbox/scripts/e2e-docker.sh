@@ -33,16 +33,12 @@ echo "e2e-docker: preflight — can this environment create user namespaces at a
 # bwrap sets up every namespace BEFORE exec, so a bare `-- true` with nothing
 # bound in fails at execvp AFTER the namespaces already succeeded, which would
 # misreport a working environment as a skip. This probe now exits 0 iff the
-# full mechanism the real jail depends on works. APT::Sandbox::User=root keeps
-# apt from dropping to the _apt user (which needs CAP_SETUID/SETGID that
-# --cap-drop ALL removes) — a probe-only concern, since the real sandbox image
-# pre-installs bwrap at build time and runs no apt at runtime.
+# full mechanism the real jail depends on works.
 if ! docker run --rm \
-    --cap-drop ALL --cap-add SETUID --cap-add SETGID \
     --security-opt seccomp=packages/sandbox/docker-seccomp.json \
     --security-opt apparmor=unconfined \
     --security-opt systempaths=unconfined \
-    debian:bookworm-slim bash -c "apt-get -o APT::Sandbox::User=root update -qq >/dev/null && apt-get -o APT::Sandbox::User=root install -y -qq bubblewrap >/dev/null && bwrap --unshare-user --unshare-pid --unshare-net --proc /proc --ro-bind / / --die-with-parent -- /usr/bin/true" >/tmp/e2e-preflight.log 2>&1; then
+    debian:bookworm-slim bash -c "apt-get update -qq >/dev/null && apt-get install -y -qq bubblewrap >/dev/null && bwrap --unshare-user --unshare-pid --unshare-net --proc /proc --ro-bind / / --die-with-parent -- /usr/bin/true" >/tmp/e2e-preflight.log 2>&1; then
   cat /tmp/e2e-preflight.log
   # A SKIP that reports green is a FALSE proof signal. When the caller asserts
   # the proof MUST run (CI, after the runner-side
@@ -67,7 +63,6 @@ echo "e2e-docker: starting container..."
 # is the real deployed posture, not a looser proxy for it.
 docker run -d --name "$CONTAINER" \
   --read-only --tmpfs /tmp --tmpfs /workspaces \
-  --cap-drop ALL --cap-add SETUID --cap-add SETGID \
   --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
   --security-opt systempaths=unconfined \

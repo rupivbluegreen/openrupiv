@@ -188,21 +188,27 @@ review, per CLAUDE.md non-negotiable #7:
    that should be corrected to "bookworm" for consistency with the image
    it's describing.
 
-4. **`security_opt` delta count + `cap_drop`.** The ADR's "Isolation posture"
-   section says the `sandbox` service carries **"exactly two documented
-   deltas"** from Docker's defaults (the loosened seccomp profile and
-   `apparmor: unconfined`). The shipped posture has **three** `security_opt`
-   deltas -- the third, `systempaths=unconfined`, is required so each bwrap
-   jail can mount a fresh `/proc` (the kernel's `mount_too_revealing()` check
-   blocks it otherwise) and only unmasks the trusted supervisor's own `/proc`,
-   never the jail's -- **plus** a `cap_drop: ALL` that keeps only
-   `SETUID`/`SETGID` (the caps bwrap needs to map uid/gid ranges when it runs
-   as root; a non-root supervisor could drop even those — a further hardening
-   noted for a follow-up), which removes the dangerous default caps
-   (`DAC_OVERRIDE`, `NET_RAW`, `MKNOD`, `SYS_CHROOT`, …) for post-escape
-   blast-radius reduction. Neither is in the ADR's authoritative text; the
-   "exactly two deltas" wording needs updating to reflect the three
-   `security_opt` deltas and the capability drop.
+4. **`security_opt` delta count (third delta).** The ADR's "Isolation
+   posture" section says the `sandbox` service carries **"exactly two
+   documented deltas"** from Docker's defaults (the loosened seccomp profile
+   and `apparmor: unconfined`). The shipped posture has **three**: the third,
+   `systempaths=unconfined`, is required so each bwrap jail can mount a fresh
+   `/proc` (the kernel's `mount_too_revealing()` check blocks it otherwise)
+   and only unmasks the trusted supervisor's own `/proc`, never the jail's.
+   The ADR's "exactly two deltas" wording needs updating to three.
+
+5. **Deferred hardening — `cap_drop` (recommend + review).** The container
+   currently runs as **root with the default Docker capability set**. Dropping
+   the dangerous defaults (`DAC_OVERRIDE`, `NET_RAW`, `MKNOD`, `SYS_CHROOT`, …)
+   would shrink the post-escape blast radius, but `cap_drop: ALL` breaks bwrap
+   here ("setting up uid map: Operation not permitted") because bwrap-as-root
+   maps a uid/gid range that needs caps the reduced set doesn't cleanly
+   provide. Doing it correctly means running the supervisor as a **non-root
+   user** (maps only its single uid, needs no caps) with a user-writable
+   `/workspaces` tmpfs — a focused follow-up left for the maintainer rather
+   than rushed, since it interacts with the container's runtime user and mount
+   ownership. Flagged here because a cold review correctly noted bwrap needs
+   none of the container's default caps.
 
 None of these are implementation defects -- the code does the thing the
 ADR's own authoritative sections (the seccomp rule list, the Dockerfile
