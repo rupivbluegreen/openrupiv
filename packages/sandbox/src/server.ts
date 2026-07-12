@@ -28,6 +28,12 @@ export interface ServerDeps {
   canaryResult: CanaryResult;
   logger?: Logger;
   runJailFn?: (input: RunJailInput) => Promise<JailOutcome>;
+  /**
+   * Test seam (like runJailFn): delivers the request's input into the workspace
+   * as input.json. Defaults to the real fs write; injected in tests to exercise
+   * the input-delivery failure path.
+   */
+  writeToolInput?: (workspaceHostPath: string, input: unknown) => Promise<void>;
   concurrency?: { maxConcurrent: number; maxQueueDepth: number };
 }
 
@@ -52,6 +58,10 @@ function extractBearer(header: string | string[] | undefined): string | null {
 export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
   const logger = deps.logger ?? createLogger();
   const runJailFn = deps.runJailFn ?? runJail;
+  const writeToolInput =
+    deps.writeToolInput ??
+    ((workspaceHostPath: string, input: unknown) =>
+      writeFile(join(workspaceHostPath, "input.json"), JSON.stringify(input ?? {}), { mode: 0o600 }));
   const semaphore = new ExecutionSemaphore(
     deps.concurrency?.maxConcurrent ?? 4,
     deps.concurrency?.maxQueueDepth ?? 8,
@@ -144,7 +154,18 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
         // read `./input.json` (see tools/*/main.py). Always written (an empty
         // object when absent) so a tool can read it unconditionally, and
         // inside the try so cleanupWorkspace below still runs if it throws.
-        await writeFile(join(workspaceHostPath, "input.json"), JSON.stringify(body.input ?? {}), { mode: 0o600 });
+        try {
+          await writeToolInput(workspaceHostPath, body.input);
+        } catch (err) {
+          // A failed input delivery is a typed sandbox error, consistent with
+          // this route's other branches — NOT Fastify's generic 500, whose body
+          // would leak the raw fs error (host workspace path). cleanupWorkspace
+          // (inner finally) and release() (outer finally) still run, so neither
+          // the workspace nor the concurrency slot is leaked.
+          logger.error({ event: "sandbox.input_write_failed", runId, err: errorMessage(err) }, "failed to deliver tool input");
+          reply.code(500);
+          return reply.send({ error: "ERR_SANDBOX_INPUT_WRITE" });
+        }
         const outcome = await runJailFn({
           entrypointPath,
           workspaceHostPath,

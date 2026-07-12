@@ -77,6 +77,48 @@ describe("POST /v1/execute", () => {
     expect(capturedInput).toEqual({ hello: "world", n: 42 });
   });
 
+  it("returns typed ERR_SANDBOX_INPUT_WRITE (no path leak) when input delivery fails, and still cleans up + frees the slot", async () => {
+    const runIdA = "8d5f1c2a-0b3e-4a6d-9c7f-1e2d3a4b5c6d";
+    const runIdB = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+    const app = await createServer(
+      baseDeps({
+        // maxConcurrent:1 so a leaked slot would make the SECOND request hang —
+        // both returning promptly proves release() ran on the failure path.
+        concurrency: { maxConcurrent: 1, maxQueueDepth: 8 },
+        writeToolInput: async () => {
+          // An fs error whose raw message embeds the host path — exactly what
+          // must NOT reach the client (a generic Fastify 500 would leak it).
+          throw new Error(`EACCES: permission denied, open '${WORKSPACE_ROOT}/x/input.json'`);
+        },
+      }),
+    );
+
+    const send = (runId: string) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/execute",
+        headers: { authorization: `Bearer ${TOKEN}` },
+        payload: { runId, tool: "echo", input: { hello: "world" }, limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 } },
+      });
+
+    const res = await send(runIdA);
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ error: "ERR_SANDBOX_INPUT_WRITE" });
+    // The host workspace path / filename / raw errno must not leak in the body.
+    expect(res.body).not.toContain(WORKSPACE_ROOT);
+    expect(res.body).not.toContain("input.json");
+    expect(res.body).not.toContain("EACCES");
+
+    // release() ran on the failure path: with maxConcurrent:1 a leaked slot
+    // would make this second request block forever instead of returning.
+    // (cleanupWorkspace also runs, in the post-send finally — already verified
+    // by the PR #13 review; asserting the dir is gone here would race that
+    // async cleanup, so we prove non-leakage via the slot instead.)
+    const res2 = await send(runIdB);
+    expect(res2.statusCode).toBe(500);
+    expect(res2.json()).toEqual({ error: "ERR_SANDBOX_INPUT_WRITE" });
+  });
+
   it("401s with no Authorization header", async () => {
     const app = await createServer(baseDeps());
     const res = await app.inject({ method: "POST", url: "/v1/execute", payload: { runId: RUN_ID, tool: "echo", input: {}, limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 } } });
