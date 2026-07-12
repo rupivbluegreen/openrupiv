@@ -153,9 +153,14 @@ services:
       # runtime (createWorkspace) and must be writable even though the
       # rest of the image's filesystem is read-only. In-memory and wiped
       # on every container restart — correct for ephemeral, per-run
-      # workspaces; nothing persists to disk.
+      # workspaces; nothing persists to disk. mode=1777 is REQUIRED: the
+      # supervisor runs as non-root (uid 10001) and a tmpfs mounted over the
+      # image's pre-existing /workspaces dir would otherwise inherit its
+      # root-owned 0755 mode, so the non-root supervisor could not create
+      # per-run/boot-canary subdirs (EACCES). 1777 (sticky, world-writable,
+      # like /tmp) lets it write; each per-run dir is then created 0700.
       - /tmp
-      - /workspaces
+      - /workspaces:mode=1777
     security_opt:
       - seccomp=\${OPENRUPIV_REPO}/packages/sandbox/docker-seccomp.json
       - apparmor=unconfined
@@ -172,13 +177,16 @@ services:
       # container's /proc. (Human-review note: this is a deliberate sandbox
       # posture choice — see packages/sandbox/README.md "Status, honestly".)
       - systempaths=unconfined
-    # NOTE (maintainer hardening, deferred): cap_drop ALL would shrink the
-    # post-escape blast radius, but bwrap running as root here needs to map a
-    # uid/gid range and fails (setting up uid map: Operation not permitted)
-    # once its caps are dropped. Doing this correctly means running the
-    # supervisor as a NON-root user (which maps only its single uid and needs
-    # no caps) with a user-writable /workspaces tmpfs — a focused follow-up,
-    # see packages/sandbox/README.md "ADR amendments" section.
+    # Drop every Linux capability. The image runs the supervisor as a non-root
+    # user (Dockerfile USER 10001), so bwrap maps only its single uid to root
+    # inside the jail (needs no caps) and acquires a full capability set INSIDE
+    # the jail's own userns. This removes the whole default Docker cap set
+    # (DAC_OVERRIDE, NET_RAW, MKNOD, SYS_CHROOT, SETUID/SETGID, …) from the
+    # container, shrinking the blast radius available to any process that
+    # escaped the jail (a residual kernel-LPE risk) — belt-and-suspenders with
+    # the seccomp/apparmor deltas above.
+    cap_drop:
+      - ALL
     environment:
       SANDBOX_TOKEN: \${SANDBOX_TOKEN:?set SANDBOX_TOKEN in .env (openrupiv new generates it)}
     networks:

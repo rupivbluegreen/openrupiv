@@ -62,7 +62,8 @@ echo "e2e-docker: starting container..."
 # `sandbox` service exactly (packages/cli/src/workspace-files.ts) — this
 # is the real deployed posture, not a looser proxy for it.
 docker run -d --name "$CONTAINER" \
-  --read-only --tmpfs /tmp --tmpfs /workspaces \
+  --read-only --tmpfs /tmp --tmpfs /workspaces:mode=1777 \
+  --cap-drop ALL \
   --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
   --security-opt systempaths=unconfined \

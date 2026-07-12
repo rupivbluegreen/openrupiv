@@ -79,23 +79,30 @@ ENV SANDBOX_PYTHON_ROOT=/usr \
 # runtime instead (see bin/serve.mjs and src/workspace.ts's createWorkspace).
 RUN mkdir -p /workspaces
 
-# Runs as root (unlike @openrupiv/runtime): bwrap's unprivileged-user-
-# namespace mechanism needs to map the calling uid to a range, and the
-# supervisor itself must be able to create workspace directories under
-# /workspaces for whichever caller-provided runId arrives. This is the ONE
-# service in the stack that legitimately needs this; the seccomp/AppArmor
-# deltas applied at `docker run`/Compose time (via `security_opt`, not a
-# Dockerfile directive) are exactly bounded to what bwrap needs — no
-# capabilities are added. `docker-seccomp.json` (applied with
-# `security_opt: seccomp=packages/sandbox/docker-seccomp.json`) is moby's
-# default seccomp profile (pinned tag v27.3.1) verbatim, PLUS exactly one
-# prepended rule unconditionally allowing `clone`, `unshare`, `mount`,
-# `umount2`, `pivot_root` for bubblewrap — the only diff from upstream
-# default; see `packages/sandbox/SECCOMP-DELTA.md`. Docker's
-# `security_opt: seccomp=<file>` REPLACES the default profile rather than
-# layering onto it, so a "delta-only" file (as this used to be) would
-# ERRNO every syscall and kill the container on start — the file must be
-# a complete, functional profile.
+# Run the supervisor as an unprivileged (non-root) user. This is what lets
+# the container drop ALL Linux capabilities (see the Compose/e2e
+# `cap_drop: ALL`): a non-root process creating an unprivileged user
+# namespace maps only its own single uid to root INSIDE the jail (bwrap's
+# default), which needs NO capabilities — unlike a root process, which maps
+# a uid RANGE and would require CAP_SETUID/SETGID. bwrap still gets a full
+# capability set INSIDE the jail's own userns. The supervisor writes only to
+# the writable tmpfs mounts (/workspaces — the Compose/e2e mounts it
+# mode=1777 so uid 10001 can create per-run/boot-canary dirs — and /tmp);
+# everything else in the image is read-only and world-readable.
+#
+# The seccomp/AppArmor deltas are applied at `docker run`/Compose time (via
+# `security_opt`, not a Dockerfile directive). `docker-seccomp.json` is
+# moby's default seccomp profile (pinned tag v27.3.1) verbatim PLUS exactly
+# one prepended rule unconditionally allowing `clone`, `unshare`, `mount`,
+# `umount2`, `pivot_root` for bubblewrap — the only diff from upstream; see
+# `packages/sandbox/SECCOMP-DELTA.md`. Docker's `security_opt: seccomp=<file>`
+# REPLACES the default profile rather than layering, so a "delta-only" file
+# would ERRNO every syscall and kill the container on start — it must be a
+# complete, functional profile.
+RUN useradd --uid 10001 --user-group --no-create-home --shell /usr/sbin/nologin sandbox
+ENV HOME=/tmp
+USER 10001:10001
+
 EXPOSE 8443
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=6 \
