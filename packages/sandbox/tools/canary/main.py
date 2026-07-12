@@ -60,7 +60,9 @@ def rlimits_applied() -> bool:
 
     as_soft, _ = resource.getrlimit(resource.RLIMIT_AS)
     nproc_soft, _ = resource.getrlimit(resource.RLIMIT_NPROC)
-    return as_soft <= 268_435_456 and nproc_soft <= 16
+    # nproc is a coarse, supervisor-shared guard (see jail-executor.ts's
+    # RLIMIT_NPROC comment); assert it is bounded, not that it is tight.
+    return as_soft <= 268_435_456 and nproc_soft <= 256
 
 
 def af_inet_socket_killed_by_sigsys() -> bool:
