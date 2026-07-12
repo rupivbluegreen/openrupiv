@@ -214,6 +214,12 @@ services:
       APP_DIR: /app-dir
       BASE_URL: http://localhost:3000
       PORT: "3000"
+      # Sandbox sidecar (ADR-0007): setting both enables governed agent tool
+      # execution (the agent/A2A routes mount and callTool runs in the jail).
+      # Reachable at the service hostname on the internal-only network; uses the
+      # same SANDBOX_TOKEN the sandbox service is given.
+      SANDBOX_URL: http://sandbox:8443
+      SANDBOX_TOKEN: \${SANDBOX_TOKEN:?set SANDBOX_TOKEN in .env (openrupiv new generates it)}
     ports:
       - "3000:3000"
     volumes:

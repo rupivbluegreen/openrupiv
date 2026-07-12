@@ -129,6 +129,9 @@ importers:
       '@openrupiv/policy':
         specifier: workspace:*
         version: link:../policy
+      '@openrupiv/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
       '@openrupiv/spec':
         specifier: workspace:*
         version: link:../spec

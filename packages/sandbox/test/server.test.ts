@@ -1,4 +1,4 @@
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "../src/server";
@@ -50,6 +50,33 @@ afterAll(async () => {
 });
 
 describe("POST /v1/execute", () => {
+  it("writes the request input to input.json in the workspace before the jail runs", async () => {
+    let capturedInput: unknown;
+    const app = await createServer(
+      baseDeps({
+        runJailFn: async (input: RunJailInput) => {
+          // The tool reads ./input.json from its cwd (the RW-bound workspace);
+          // reading it here proves the supervisor delivered the request input
+          // BEFORE the jail was invoked.
+          const raw = await readFile(path.join(input.workspaceHostPath, "input.json"), "utf8");
+          capturedInput = JSON.parse(raw);
+          return { ok: true, output: null, durationMs: 1 };
+        },
+      }),
+    );
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/execute",
+      headers: { authorization: `Bearer ${TOKEN}` },
+      // Unique runId (this test creates a real workspace on disk — reusing the
+      // shared RUN_ID would race/collide with the other tests, per the note by
+      // the concurrency tests below).
+      payload: { runId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", tool: "echo", input: { hello: "world", n: 42 }, limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(capturedInput).toEqual({ hello: "world", n: 42 });
+  });
+
   it("401s with no Authorization header", async () => {
     const app = await createServer(baseDeps());
     const res = await app.inject({ method: "POST", url: "/v1/execute", payload: { runId: RUN_ID, tool: "echo", input: {}, limits: { wallClockMs: 1000, memoryBytes: 1, maxOutputBytes: 1 } } });

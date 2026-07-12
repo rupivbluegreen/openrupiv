@@ -46,7 +46,7 @@ export {
 } from "./a2a";
 export {
   DEMO_REGISTERED_TOOLS,
-  DEMO_TASK_PROCEDURES,
+  createDemoProcedures,
   READ_VENDOR_APPLICATION_TOOL,
   VENDOR_RISK_REVIEW_TASK,
   isSuccessOutcome,

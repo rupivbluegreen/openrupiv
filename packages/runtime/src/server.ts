@@ -12,16 +12,17 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
-import type { AgentRuntime } from "@openrupiv/agents";
+import { createAgentRuntime, type AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
 import { createMcpClient, registerMcpServer, type McpClient } from "@openrupiv/mcp";
 import { createPolicyEngine, type PolicyEngine, type PolicySubject } from "@openrupiv/policy";
+import { createSidecarSandbox } from "@openrupiv/sandbox";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerA2aEndpoint, type A2aConfig } from "./a2a";
 import { registerAdminAuditRoutes } from "./admin";
 import { registerAdminAgentRoutes } from "./admin-agents";
-import type { AgentTaskProcedureRegistry } from "./agent-tasks";
+import { DEMO_REGISTERED_TOOLS, createDemoProcedures, type AgentTaskProcedureRegistry } from "./agent-tasks";
 import { createDbAuditStore } from "./audit";
 import { defaultOidcProvider, registerAuth, type OidcProvider } from "./auth";
 import { assertRuntimeConfig, configFromEnv, type RuntimeConfig } from "./config";
@@ -291,6 +292,50 @@ export async function createServer(
 }
 
 /**
+ * Injectable constructors for `buildAgentDeps`, so the gate + wiring can be
+ * unit-tested without a live sandbox/OPA/db. Defaults are the real ones.
+ */
+export interface AgentWiringDeps {
+  createSidecarSandbox?: typeof createSidecarSandbox;
+  createAgentRuntime?: typeof createAgentRuntime;
+  createPolicyEngine?: typeof createPolicyEngine;
+  createDbAuditStore?: typeof createDbAuditStore;
+}
+
+/**
+ * Build the `ServerDeps` slice that enables governed agent tool execution —
+ * ONLY when the sandbox sidecar is configured (`SANDBOX_URL` + `SANDBOX_TOKEN`).
+ * Absent (or a half-set pair) = `{}`: agents stay off and the agent/A2A routes
+ * are not mounted (unchanged prior behavior). When present, the `auditStore` +
+ * `policyEngine` are built HERE and returned so `serveAppDir` can inject them
+ * into BOTH the AgentRuntime and `createServer` — one shared instance of each,
+ * never a split between the agent runtime and the HTTP routes. Extracted from
+ * `serveAppDir` so this gate (and the exact `createSidecarSandbox` args) is
+ * unit-testable, which the full `serveAppDir` (real pg pool + listen) is not.
+ */
+export async function buildAgentDeps(
+  spec: AppSpec,
+  cfg: RuntimeConfig,
+  db: Db,
+  logger: Logger,
+  wiring: AgentWiringDeps = {},
+): Promise<Pick<ServerDeps, "auditStore" | "policyEngine" | "agents">> {
+  if (cfg.sandboxUrl === undefined || cfg.sandboxToken === undefined) return {};
+
+  const mkSandbox = wiring.createSidecarSandbox ?? createSidecarSandbox;
+  const mkRuntime = wiring.createAgentRuntime ?? createAgentRuntime;
+  const mkPolicy = wiring.createPolicyEngine ?? createPolicyEngine;
+  const mkAudit = wiring.createDbAuditStore ?? createDbAuditStore;
+
+  const auditStore = mkAudit(db, logger);
+  const policyEngine = await mkPolicy();
+  const sandbox = mkSandbox({ baseUrl: cfg.sandboxUrl, token: cfg.sandboxToken });
+  const agentRuntime = mkRuntime(spec, { db, policy: policyEngine, audit: auditStore, sandbox, tools: DEMO_REGISTERED_TOOLS });
+  logger.info({ event: "server.agents_enabled", sandboxUrl: cfg.sandboxUrl }, "agent tool execution enabled (sandbox sidecar configured)");
+  return { auditStore, policyEngine, agents: { runtime: agentRuntime, procedures: createDemoProcedures(db) } };
+}
+
+/**
  * Apply app migrations + runtime infra tables, then listen. The Compose
  * runtime service runs exactly this via bin/serve.mjs with APP_DIR set.
  */
@@ -311,7 +356,18 @@ export async function serveAppDir(
     throw error;
   }
 
-  const app = await createServer(spec, cfg, { db, logger });
+  let agentDeps: Pick<ServerDeps, "auditStore" | "policyEngine" | "agents">;
+  try {
+    agentDeps = await buildAgentDeps(spec, cfg, db, logger);
+  } catch (error) {
+    // Same cleanup as the migrations block above: buildAgentDeps can throw at
+    // startup (createAgentRuntime on an unregistered tool, createPolicyEngine
+    // on a bad bundle) -- don't leak the pg pool if agent wiring fails.
+    await db.end();
+    throw error;
+  }
+
+  const app = await createServer(spec, cfg, { db, logger, ...agentDeps });
   app.addHook("onClose", async () => {
     await db.end();
   });

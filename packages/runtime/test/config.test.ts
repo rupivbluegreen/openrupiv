@@ -92,6 +92,36 @@ describe("configFromEnv", () => {
     expectRuntimeError(() => configFromEnv({ ...VALID_ENV, PORT: "70000" }), "ERR_CONFIG");
   });
 
+  it("reads SANDBOX_URL + SANDBOX_TOKEN as a pair", () => {
+    const config = configFromEnv({
+      ...VALID_ENV,
+      SANDBOX_URL: "http://sandbox:8443",
+      SANDBOX_TOKEN: "test-only-sandbox-token-not-a-secret-xx",
+    });
+    expect(config.sandboxUrl).toBe("http://sandbox:8443");
+    expect(config.sandboxToken).toBe("test-only-sandbox-token-not-a-secret-xx");
+  });
+
+  it("leaves the sandbox unset (agents off) when neither var is provided", () => {
+    const config = configFromEnv(VALID_ENV);
+    expect(config.sandboxUrl).toBeUndefined();
+    expect(config.sandboxToken).toBeUndefined();
+  });
+
+  it("rejects a half-set sandbox pair (URL without token)", () => {
+    expectRuntimeError(
+      () => configFromEnv({ ...VALID_ENV, SANDBOX_URL: "http://sandbox:8443" }),
+      "ERR_CONFIG",
+    );
+  });
+
+  it("rejects a SANDBOX_TOKEN shorter than 32 characters", () => {
+    expectRuntimeError(
+      () => configFromEnv({ ...VALID_ENV, SANDBOX_URL: "http://sandbox:8443", SANDBOX_TOKEN: "short" }),
+      "ERR_CONFIG",
+    );
+  });
+
   it("rejects an invalid OIDC_ISSUER url", () => {
     expectRuntimeError(
       () => configFromEnv({ ...VALID_ENV, OIDC_ISSUER: "not a url" }),

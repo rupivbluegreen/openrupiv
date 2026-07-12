@@ -226,8 +226,11 @@ describe("openrupiv new — docker-compose.yaml per contract", () => {
       APP_DIR: "/app-dir",
       BASE_URL: "http://localhost:3000",
       PORT: "3000",
+      SANDBOX_URL: "http://sandbox:8443",
     });
     expect(runtime?.environment?.["SESSION_SECRET"]).toContain("SESSION_SECRET");
+    // The runtime reaches the sandbox sidecar with the same generated token.
+    expect(runtime?.environment?.["SANDBOX_TOKEN"]).toContain("SANDBOX_TOKEN");
     expect(runtime?.volumes).toEqual(["./app:/app-dir:ro"]);
     expect(runtime?.ports).toEqual(["3000:3000"]);
     expect(runtime?.depends_on).toEqual({

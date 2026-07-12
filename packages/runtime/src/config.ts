@@ -26,6 +26,10 @@ export interface RuntimeConfig {
   devMode: boolean; // OPENRUPIV_DEV_MODE === "true"
   /** Optional: absolute path to a JSON file shaped { servers: McpServerEntry[] } (@openrupiv/mcp). Absent = the MCP client is inert (no config, no egress). MCP_SERVERS_CONFIG. */
   mcpServersConfigPath?: string;
+  /** Optional: base URL of the ADR-0007 sandbox sidecar (e.g. http://sandbox:8443). Set TOGETHER with sandboxToken to enable governed agent tool execution; absent = the agent runtime is not constructed and the agent/A2A routes stay off. SANDBOX_URL. */
+  sandboxUrl?: string;
+  /** Optional: bearer token for the sandbox sidecar (>= 32 chars). Paired with sandboxUrl. SANDBOX_TOKEN. */
+  sandboxToken?: string;
 }
 
 /** The conspicuous dev-only client secret shipped with the Compose Dex stack. */
@@ -100,6 +104,21 @@ export function configFromEnv(
   const devMode = env["OPENRUPIV_DEV_MODE"] === "true";
   const mcpServersConfigPath = readVar(env, "MCP_SERVERS_CONFIG");
 
+  // Sandbox sidecar (ADR-0007). Optional and PAIRED: both enable governed
+  // agent tool execution, or neither. A half-set pair is a misconfiguration
+  // (the runtime could not reach the sidecar), not a silent no-op.
+  const sandboxUrl = readVar(env, "SANDBOX_URL");
+  if (sandboxUrl !== undefined && !isValidUrl(sandboxUrl)) {
+    problems.push(`SANDBOX_URL is not a valid URL: ${JSON.stringify(sandboxUrl)}`);
+  }
+  const sandboxToken = readVar(env, "SANDBOX_TOKEN");
+  if (sandboxToken !== undefined && sandboxToken.length < 32) {
+    problems.push(`SANDBOX_TOKEN must be at least 32 characters (got ${sandboxToken.length})`);
+  }
+  if ((sandboxUrl === undefined) !== (sandboxToken === undefined)) {
+    problems.push("SANDBOX_URL and SANDBOX_TOKEN must be set together (both enable agent tool execution, or neither)");
+  }
+
   const baseUrl = readVar(env, "BASE_URL") ?? `http://localhost:${port}`;
   if (!isValidUrl(baseUrl)) {
     problems.push(`BASE_URL is not a valid URL: ${JSON.stringify(baseUrl)}`);
@@ -126,6 +145,8 @@ export function configFromEnv(
     port,
     devMode,
     ...(mcpServersConfigPath !== undefined ? { mcpServersConfigPath } : {}),
+    ...(sandboxUrl !== undefined ? { sandboxUrl } : {}),
+    ...(sandboxToken !== undefined ? { sandboxToken } : {}),
   };
 
   assertRuntimeConfig(config);
