@@ -90,15 +90,37 @@ echo "e2e-docker: boot canary healthy: $(cat /tmp/e2e-health.json)"
 
 call() {
   local tool="$1" wall_ms="$2"
+  call_input "$tool" "$wall_ms" "{}"
+}
+
+# Same as call() but with a caller-supplied JSON input object, to prove the
+# supervisor delivers request input to the tool (written as input.json in the
+# RW-bound workspace; the tool reads ./input.json).
+call_input() {
+  local tool="$1" wall_ms="$2" input="$3"
   curl -s -X POST "http://127.0.0.1:$PORT/v1/execute" \
     -H "authorization: Bearer $TOKEN" -H "content-type: application/json" \
-    -d "{\"runId\":\"$(node -e 'console.log(require("crypto").randomUUID())')\",\"tool\":\"$tool\",\"input\":{},\"limits\":{\"wallClockMs\":$wall_ms,\"memoryBytes\":268435456,\"maxOutputBytes\":1048576}}"
+    -d "{\"runId\":\"$(node -e 'console.log(require("crypto").randomUUID())')\",\"tool\":\"$tool\",\"input\":$input,\"limits\":{\"wallClockMs\":$wall_ms,\"memoryBytes\":268435456,\"maxOutputBytes\":1048576}}"
 }
 
 echo "e2e-docker: echo (happy path)..."
 echo_result="$(call echo 5000)"
 echo "$echo_result"
 echo "$echo_result" | grep -q '"ok":true' || { echo "e2e-docker: FAIL — echo did not succeed" >&2; exit 1; }
+
+# The real v1 tool: proves input.json IS delivered to the jail and the tool's
+# deterministic verdict comes back — the runtime->sidecar->jail->result path a
+# governed agent task exercises (the agent leg is unit-tested with a fake
+# sandbox; this is the real jail execution of the tool).
+echo "e2e-docker: read-vendor-application (real tool + input delivery) — clean record must be low risk..."
+low_result="$(call_input read-vendor-application 5000 '{"annualSpend":5000,"justification":"Long-standing strategic supplier for cloud infrastructure."}')"
+echo "$low_result"
+echo "$low_result" | grep -q '"risk":"low"' || { echo "e2e-docker: FAIL — read-vendor-application did not return low risk for a clean record (input not delivered?)" >&2; exit 1; }
+
+echo "e2e-docker: read-vendor-application — risky record must be high risk..."
+high_result="$(call_input read-vendor-application 5000 '{"annualSpend":250000,"justification":"x"}')"
+echo "$high_result"
+echo "$high_result" | grep -q '"risk":"high"' || { echo "e2e-docker: FAIL — read-vendor-application did not return high risk for a risky record" >&2; exit 1; }
 
 echo "e2e-docker: network_probe (must be blocked)..."
 net_result="$(call network_probe 5000)"

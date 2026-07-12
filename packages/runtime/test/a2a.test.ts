@@ -7,7 +7,7 @@ import { fixtures } from "@openrupiv/spec";
 import type { A2aClientEntry } from "../src/a2a";
 import {
   DEMO_REGISTERED_TOOLS,
-  DEMO_TASK_PROCEDURES,
+  createDemoProcedures,
   VENDOR_RISK_REVIEW_TASK,
   type AgentTaskProcedureRegistry,
 } from "../src/agent-tasks";
@@ -58,7 +58,7 @@ function denyActionPolicyEngine(deniedAction: string, reason: string, policyId: 
 async function buildA2aServer(
   db: FakeDb,
   sandbox: FakeToolSandbox,
-  procedures: AgentTaskProcedureRegistry = DEMO_TASK_PROCEDURES,
+  procedures: AgentTaskProcedureRegistry = createDemoProcedures(db as never),
   wrapAgentRuntime: (real: AgentRuntime) => AgentRuntime = (real) => real,
   overrides: {
     auditStore?: AuditStore;
@@ -133,7 +133,8 @@ describe("A2A endpoint", () => {
     const row = db.seedRow("vendor_application", { vendor_id: randomUUID(), justification: "j", annual_spend: 1, status: "in_review" });
     const recordId = String(row["id"]);
     const sandbox = new FakeToolSandbox();
-    sandbox.queueResult({ ok: true, output: { id: recordId, status: "in_review" }, durationMs: 1 });
+    // Low-risk verdict from the sandboxed tool -> the agent proposes -> completed.
+    sandbox.queueResult({ ok: true, output: { risk: "low", reasons: ["no blocking risk signals"] }, durationMs: 1 });
     const server = await buildA2aServer(db, sandbox);
 
     const send = await server.app.inject({
@@ -234,7 +235,7 @@ describe("A2A endpoint", () => {
   it("an unexpected contextFor lookup error returns a generic message to the external caller and logs the real error server-side", async () => {
     const db = new FakeDb();
     const boom = new Error("dsn=postgres://user:hunter2@internal-db.corp/secret-schema");
-    const server = await buildA2aServer(db, new FakeToolSandbox(), DEMO_TASK_PROCEDURES, (real) => ({
+    const server = await buildA2aServer(db, new FakeToolSandbox(), createDemoProcedures(db as never), (real) => ({
       contextFor: (taskName: string) => {
         if (taskName === VENDOR_RISK_REVIEW_TASK) throw boom;
         return real.contextFor(taskName);
@@ -284,10 +285,10 @@ describe("A2A endpoint", () => {
     const row = db.seedRow("vendor_application", { vendor_id: randomUUID(), justification: "j", annual_spend: 1, status: "in_review" });
     const recordId = String(row["id"]);
     const sandbox = new FakeToolSandbox();
-    sandbox.queueResult({ ok: true, output: { id: recordId, status: "in_review" }, durationMs: 1 });
+    sandbox.queueResult({ ok: true, output: { risk: "low", reasons: ["no blocking risk signals"] }, durationMs: 1 });
 
     const auditStore = auditStoreFailingOn(db, "a2a.result");
-    const server = await buildA2aServer(db, sandbox, DEMO_TASK_PROCEDURES, undefined, { auditStore });
+    const server = await buildA2aServer(db, sandbox, createDemoProcedures(db as never), undefined, { auditStore });
 
     const res = await server.app.inject({
       method: "POST",
@@ -360,7 +361,7 @@ describe("A2A endpoint", () => {
       verify: async () => ({ ok: true, count: 0 }),
     };
 
-    const server = await buildA2aServer(db, sandbox, DEMO_TASK_PROCEDURES, undefined, { agentRuntimeAudit: throwOnceOnFinishAudit });
+    const server = await buildA2aServer(db, sandbox, createDemoProcedures(db as never), undefined, { agentRuntimeAudit: throwOnceOnFinishAudit });
 
     await server.app.inject({
       method: "POST",
@@ -496,7 +497,7 @@ describe("A2A endpoint", () => {
     const recordId = String(row["id"]);
     const sandbox = new FakeToolSandbox();
     sandbox.queueResult({ ok: true, output: { id: recordId, status: "in_review" }, durationMs: 1 });
-    const server = await buildA2aServer(db, sandbox, DEMO_TASK_PROCEDURES, undefined, {
+    const server = await buildA2aServer(db, sandbox, createDemoProcedures(db as never), undefined, {
       policyEngine: fixedPolicyIdEngine("fake-policy-42"),
     });
 
@@ -525,7 +526,7 @@ describe("A2A endpoint", () => {
       "vendor risk review is disabled for this client",
       "deny-policy-id",
     );
-    const server = await buildA2aServer(db, new FakeToolSandbox(), DEMO_TASK_PROCEDURES, undefined, {
+    const server = await buildA2aServer(db, new FakeToolSandbox(), createDemoProcedures(db as never), undefined, {
       policyEngine: denyEngine,
     });
 
@@ -568,7 +569,7 @@ describe("A2A endpoint", () => {
 
     process.env["OPENRUPIV_TEST_A2A_CLIENT_A_SECRET"] = "client-a-secret";
     process.env["OPENRUPIV_TEST_A2A_CLIENT_B_SECRET"] = "client-b-secret";
-    const server = await buildA2aServer(db, sandbox, DEMO_TASK_PROCEDURES, undefined, {
+    const server = await buildA2aServer(db, sandbox, createDemoProcedures(db as never), undefined, {
       clients: [
         { clientId: "client-a", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_CLIENT_A_SECRET" },
         { clientId: "client-b", allowedSkills: [VENDOR_RISK_REVIEW_TASK], bearerTokenEnv: "OPENRUPIV_TEST_A2A_CLIENT_B_SECRET" },

@@ -8,7 +8,8 @@
  * alongside the rest of this wiring (human-only review path).
  */
 import type { AgentContext, RegisteredTool } from "@openrupiv/agents";
-import { isUuid } from "./naming";
+import type { Db } from "./db";
+import { isUuid, quoteIdent } from "./naming";
 
 export interface AgentTaskOutcome {
   reason: string;
@@ -40,50 +41,93 @@ export type AgentTaskProcedureRegistry = Record<string, AgentTaskProcedure>;
 export const VENDOR_RISK_REVIEW_TASK = "vendor-risk-review";
 
 /**
- * Read-only tool declaration for the demo task. This is a DECLARATION only
- * (name/description/inputSchema/entrypoint) — per specs/phase-2-contracts.md
- * §4 open question 2, the actual implementation behind `entrypoint` runs
- * exclusively inside the ADR-0007 sandbox boundary, which does not exist in
- * this codebase yet (packages/sandbox, a separate later stage). There is
- * deliberately no handler function here.
+ * The one real `RegisteredTool` v1 ships: the `read-vendor-application` tool
+ * implemented at `packages/sandbox/tools/read-vendor-application/main.py`, run
+ * inside the ADR-0007 bwrap jail. `entrypoint` is a bare name that resolves to
+ * `/opt/sandbox-tools/<entrypoint>/main.py` in the sidecar image (no `builtin:`
+ * prefix — that would be rejected by the sidecar's bare-name entrypoint rule).
+ *
+ * Because the jail has NO network/DB access, this tool cannot fetch anything:
+ * the trusted runtime (`vendorRiskReview` below) reads the record and passes
+ * its risk-relevant fields as `input`; the tool computes a deterministic risk
+ * verdict from that data alone. (The tool NAME is a little imprecise post-
+ * reshape — the runtime does the read — but is kept to match the spec's
+ * declared `tools: ["read-vendor-application"]` and avoid churning the golden
+ * spec corpus; a rename is a cosmetic follow-up.)
  */
 export const READ_VENDOR_APPLICATION_TOOL: RegisteredTool = {
   name: "read-vendor-application",
-  description: "Read-only: fetch a VendorApplication record's current state and key attributes by id.",
+  description: "Assess a pre-fetched VendorApplication record's onboarding risk (deterministic; runs sandboxed with no network/DB).",
   inputSchema: {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     type: "object",
-    properties: { id: { type: "string" } },
-    required: ["id"],
+    properties: {
+      annualSpend: { type: ["number", "null"] },
+      justification: { type: ["string", "null"] },
+      status: { type: ["string", "null"] },
+    },
     additionalProperties: false,
   },
-  entrypoint: "builtin:read-vendor-application",
+  entrypoint: "read-vendor-application",
 };
 
 export const DEMO_REGISTERED_TOOLS: RegisteredTool[] = [READ_VENDOR_APPLICATION_TOOL];
 
-async function vendorRiskReview(ctx: AgentContext, input: Record<string, unknown>): Promise<AgentTaskOutcome> {
+const VENDOR_APPLICATION_TABLE = "vendor_application";
+
+async function vendorRiskReview(ctx: AgentContext, input: Record<string, unknown>, db: Db): Promise<AgentTaskOutcome> {
   const recordId = input["recordId"];
   if (typeof recordId !== "string" || !isUuid(recordId)) {
     return { reason: "invalid_input", detail: { message: "recordId must be a UUID" } };
   }
 
-  const readResult = await ctx.callTool({ tool: "read-vendor-application", input: { id: recordId } });
-  if (!readResult.ok) {
-    return { reason: "read_failed", detail: { code: readResult.code, message: readResult.message } };
+  // The jail has no DB access, so the trusted runtime reads the record here
+  // and hands the risk-relevant fields to the sandboxed tool. Exact SQL shape
+  // matches entities.ts's single-record read.
+  const res = await db.query(`SELECT * FROM ${quoteIdent(VENDOR_APPLICATION_TABLE)} WHERE id = $1`, [recordId]);
+  const row = res.rows[0] as Record<string, unknown> | undefined;
+  if (!row) {
+    return { reason: "read_failed", detail: { message: `no ${VENDOR_APPLICATION_TABLE} record ${JSON.stringify(recordId)}` } };
+  }
+
+  const toolResult = await ctx.callTool({
+    tool: "read-vendor-application",
+    input: {
+      annualSpend: (row["annual_spend"] as number | null | undefined) ?? null,
+      justification: (row["justification"] as string | null | undefined) ?? null,
+      status: (row["status"] as string | null | undefined) ?? null,
+    },
+  });
+  if (!toolResult.ok) {
+    return { reason: "read_failed", detail: { code: toolResult.code, message: toolResult.message } };
+  }
+
+  const verdict = (toolResult.output ?? {}) as { risk?: unknown; reasons?: unknown };
+  if (verdict.risk !== "low") {
+    // A high-risk (or malformed) verdict is a correct NON-proposing outcome:
+    // the task ran and declined to recommend approval. isSuccessOutcome treats
+    // only "proposed" as success, so this is reported as a non-success run
+    // whose detail carries the actual verdict.
+    return { reason: "declined_high_risk", detail: { risk: verdict.risk ?? null, reasons: verdict.reasons ?? null } };
   }
 
   const proposal = await ctx.propose({
-    entityTable: "vendor_application",
+    entityTable: VENDOR_APPLICATION_TABLE,
     recordId,
     workflow: "vendor-approval",
     transition: "approve",
-    rationale:
-      "Automated risk review found no blocking signals in the current record state; recommending approval for human sign-off.",
+    rationale: "Automated risk review found no blocking signals; recommending approval for human sign-off.",
   });
-  return { reason: "proposed", detail: { proposalId: proposal.id } };
+  return { reason: "proposed", detail: { proposalId: proposal.id, risk: verdict.risk } };
 }
 
-export const DEMO_TASK_PROCEDURES: AgentTaskProcedureRegistry = {
-  [VENDOR_RISK_REVIEW_TASK]: vendorRiskReview,
-};
+/**
+ * Build the demo procedure registry closed over `db` — `vendorRiskReview`
+ * needs to read the VendorApplication record (the sandboxed tool cannot),
+ * which the static registry could not provide.
+ */
+export function createDemoProcedures(db: Db): AgentTaskProcedureRegistry {
+  return {
+    [VENDOR_RISK_REVIEW_TASK]: (ctx, input) => vendorRiskReview(ctx, input, db),
+  };
+}

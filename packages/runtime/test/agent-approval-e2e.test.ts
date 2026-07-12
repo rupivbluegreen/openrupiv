@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createAgentRuntime } from "@openrupiv/agents";
 import { fixtures } from "@openrupiv/spec";
-import { DEMO_REGISTERED_TOOLS, DEMO_TASK_PROCEDURES, VENDOR_RISK_REVIEW_TASK } from "../src/agent-tasks";
+import { DEMO_REGISTERED_TOOLS, createDemoProcedures, VENDOR_RISK_REVIEW_TASK } from "../src/agent-tasks";
 import { FakeDb } from "./helpers/fakeDb";
 import { FakeAuditStore } from "./helpers/fakeAgentAuditStore";
 import { FakeToolSandbox } from "./helpers/fakeToolSandbox";
@@ -26,7 +26,7 @@ describe("acceptance criterion 5: an agent proposes a vendor approval; a human m
       sandbox,
       tools: DEMO_REGISTERED_TOOLS,
     });
-    const server = await buildTestServer(spec, db, { agents: { runtime: agentRuntime, procedures: DEMO_TASK_PROCEDURES } });
+    const server = await buildTestServer(spec, db, { agents: { runtime: agentRuntime, procedures: createDemoProcedures(db as never) } });
 
     const row = db.seedRow("vendor_application", {
       vendor_id: randomUUID(),
@@ -35,7 +35,9 @@ describe("acceptance criterion 5: an agent proposes a vendor approval; a human m
       status: "in_review",
     });
     const applicationId = String(row["id"]);
-    sandbox.queueResult({ ok: true, output: { id: applicationId, status: "in_review" }, durationMs: 1 });
+    // The sandboxed read-vendor-application tool returns a low-risk verdict,
+    // so the agent proposes approval.
+    sandbox.queueResult({ ok: true, output: { risk: "low", reasons: ["no blocking risk signals"] }, durationMs: 1 });
 
     // 1. Agent proposes.
     const trigger = await server.app.inject({

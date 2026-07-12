@@ -12,16 +12,17 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyCookie from "@fastify/cookie";
 import fastifyFormbody from "@fastify/formbody";
-import type { AgentRuntime } from "@openrupiv/agents";
+import { createAgentRuntime, type AgentRuntime } from "@openrupiv/agents";
 import type { AuditStore } from "@openrupiv/audit";
 import { createMcpClient, registerMcpServer, type McpClient } from "@openrupiv/mcp";
 import { createPolicyEngine, type PolicyEngine, type PolicySubject } from "@openrupiv/policy";
+import { createSidecarSandbox } from "@openrupiv/sandbox";
 import { validateSpec, type AppSpec } from "@openrupiv/spec";
 import Fastify, { type FastifyInstance } from "fastify";
 import { registerA2aEndpoint, type A2aConfig } from "./a2a";
 import { registerAdminAuditRoutes } from "./admin";
 import { registerAdminAgentRoutes } from "./admin-agents";
-import type { AgentTaskProcedureRegistry } from "./agent-tasks";
+import { DEMO_REGISTERED_TOOLS, createDemoProcedures, type AgentTaskProcedureRegistry } from "./agent-tasks";
 import { createDbAuditStore } from "./audit";
 import { defaultOidcProvider, registerAuth, type OidcProvider } from "./auth";
 import { assertRuntimeConfig, configFromEnv, type RuntimeConfig } from "./config";
@@ -311,7 +312,31 @@ export async function serveAppDir(
     throw error;
   }
 
-  const app = await createServer(spec, cfg, { db, logger });
+  // Agent tool execution is wired ONLY when the sandbox sidecar is configured
+  // (SANDBOX_URL + SANDBOX_TOKEN). Absent = agents stay off and the
+  // agent/A2A routes are not mounted (unchanged prior behavior). When present,
+  // build the audit store + policy engine HERE and inject them into
+  // createServer so the AgentRuntime and the server routes share exactly one
+  // of each (createServer otherwise builds its own internally).
+  const agentDeps: Pick<ServerDeps, "auditStore" | "policyEngine" | "agents"> = {};
+  if (cfg.sandboxUrl !== undefined && cfg.sandboxToken !== undefined) {
+    const auditStore = createDbAuditStore(db, logger);
+    const policyEngine = await createPolicyEngine();
+    const sandbox = createSidecarSandbox({ baseUrl: cfg.sandboxUrl, token: cfg.sandboxToken });
+    const agentRuntime = createAgentRuntime(spec, {
+      db,
+      policy: policyEngine,
+      audit: auditStore,
+      sandbox,
+      tools: DEMO_REGISTERED_TOOLS,
+    });
+    agentDeps.auditStore = auditStore;
+    agentDeps.policyEngine = policyEngine;
+    agentDeps.agents = { runtime: agentRuntime, procedures: createDemoProcedures(db) };
+    logger.info({ event: "server.agents_enabled", sandboxUrl: cfg.sandboxUrl }, "agent tool execution enabled (sandbox sidecar configured)");
+  }
+
+  const app = await createServer(spec, cfg, { db, logger, ...agentDeps });
   app.addHook("onClose", async () => {
     await db.end();
   });

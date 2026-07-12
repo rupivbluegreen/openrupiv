@@ -4,7 +4,7 @@ import { createAgentRuntime } from "@openrupiv/agents";
 import type { AuditRecordInput } from "@openrupiv/audit";
 import { fixtures } from "@openrupiv/spec";
 import type { AgentTaskProcedureRegistry } from "../src/agent-tasks";
-import { DEMO_REGISTERED_TOOLS, DEMO_TASK_PROCEDURES, VENDOR_RISK_REVIEW_TASK } from "../src/agent-tasks";
+import { DEMO_REGISTERED_TOOLS, createDemoProcedures, VENDOR_RISK_REVIEW_TASK } from "../src/agent-tasks";
 import { FakeDb } from "./helpers/fakeDb";
 import { FakeAuditStore } from "./helpers/fakeAgentAuditStore";
 import { FakeToolSandbox } from "./helpers/fakeToolSandbox";
@@ -33,7 +33,7 @@ describe("admin agent routes", () => {
       tools: DEMO_REGISTERED_TOOLS,
     });
     server = await buildTestServer(spec, db, {
-      agents: { runtime: agentRuntime, procedures: DEMO_TASK_PROCEDURES },
+      agents: { runtime: agentRuntime, procedures: createDemoProcedures(db as never) },
     });
     const row = db.seedRow("vendor_application", {
       vendor_id: randomUUID(),
@@ -42,7 +42,7 @@ describe("admin agent routes", () => {
       status: "in_review",
     });
     applicationId = String(row["id"]);
-    sandbox.queueResult({ ok: true, output: { id: applicationId, status: "in_review" }, durationMs: 1 });
+    sandbox.queueResult({ ok: true, output: { risk: "low", reasons: ["no blocking risk signals"] }, durationMs: 1 });
   });
 
   it("403s for a non-admin", async () => {
@@ -202,7 +202,7 @@ describe("finding admin-agents-role-namespace-collision: an app-declared role mu
       tools: DEMO_REGISTERED_TOOLS,
     });
     const server = await buildTestServer(collidingSpec, db, {
-      agents: { runtime: agentRuntime, procedures: DEMO_TASK_PROCEDURES },
+      agents: { runtime: agentRuntime, procedures: createDemoProcedures(db as never) },
     });
     const row = db.seedRow("vendor_application", {
       vendor_id: randomUUID(),

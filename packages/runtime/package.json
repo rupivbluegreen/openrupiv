@@ -18,6 +18,7 @@
     "@openrupiv/audit": "workspace:*",
     "@openrupiv/mcp": "workspace:*",
     "@openrupiv/policy": "workspace:*",
+    "@openrupiv/sandbox": "workspace:*",
     "@openrupiv/spec": "workspace:*",
     "fastify": "^5.10.0",
     "openid-client": "^6.8.4",

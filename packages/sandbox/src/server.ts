@@ -7,6 +7,8 @@
  * no fallback execution path.
  */
 
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type { CanaryResult } from "./canary";
 import { ExecutionSemaphore, SandboxAtCapacityError } from "./concurrency";
@@ -136,6 +138,13 @@ export async function createServer(deps: ServerDeps): Promise<FastifyInstance> {
       // We own this workspace now; its cleanup -- and only its cleanup --
       // is ours to run.
       try {
+        // Deliver the request's input to the tool. The jail RW-binds this
+        // workspace at /workspace (the tool's cwd, per bwrap-argv.ts), so
+        // writing input.json here is how the tool receives its input: tools
+        // read `./input.json` (see tools/*/main.py). Always written (an empty
+        // object when absent) so a tool can read it unconditionally, and
+        // inside the try so cleanupWorkspace below still runs if it throws.
+        await writeFile(join(workspaceHostPath, "input.json"), JSON.stringify(body.input ?? {}), { mode: 0o600 });
         const outcome = await runJailFn({
           entrypointPath,
           workspaceHostPath,
