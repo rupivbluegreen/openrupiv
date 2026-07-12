@@ -172,13 +172,19 @@ services:
       # container's /proc. (Human-review note: this is a deliberate sandbox
       # posture choice — see packages/sandbox/README.md "Status, honestly".)
       - systempaths=unconfined
-    # bwrap acquires the capabilities it needs INSIDE its own unprivileged user
-    # namespace; it needs none of the container's default Docker capabilities.
-    # Dropping them all shrinks the blast radius available to any process that
-    # escaped the bwrap jail (a residual kernel-LPE risk) at zero functional
-    # cost — belt-and-suspenders with the seccomp/apparmor deltas above.
+    # Drop every default Docker capability, keeping only the two bwrap needs
+    # to map uid/gid ranges when it runs as root (SETUID/SETGID) — everything
+    # dangerous for post-escape blast radius (DAC_OVERRIDE, NET_RAW, MKNOD,
+    # SYS_CHROOT, SETPCAP, …) is gone. bwrap otherwise acquires the caps it
+    # needs INSIDE its own unprivileged user namespace. (A fully-capless
+    # posture is possible by running the supervisor as a non-root user, which
+    # would map only its single uid and need no caps at all — a further
+    # hardening noted for the maintainer; see packages/sandbox/README.md.)
     cap_drop:
       - ALL
+    cap_add:
+      - SETUID
+      - SETGID
     environment:
       SANDBOX_TOKEN: \${SANDBOX_TOKEN:?set SANDBOX_TOKEN in .env (openrupiv new generates it)}
     networks:

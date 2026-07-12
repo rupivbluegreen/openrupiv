@@ -38,7 +38,7 @@ echo "e2e-docker: preflight — can this environment create user namespaces at a
 # --cap-drop ALL removes) — a probe-only concern, since the real sandbox image
 # pre-installs bwrap at build time and runs no apt at runtime.
 if ! docker run --rm \
-    --cap-drop ALL \
+    --cap-drop ALL --cap-add SETUID --cap-add SETGID \
     --security-opt seccomp=packages/sandbox/docker-seccomp.json \
     --security-opt apparmor=unconfined \
     --security-opt systempaths=unconfined \
@@ -67,7 +67,7 @@ echo "e2e-docker: starting container..."
 # is the real deployed posture, not a looser proxy for it.
 docker run -d --name "$CONTAINER" \
   --read-only --tmpfs /tmp --tmpfs /workspaces \
-  --cap-drop ALL \
+  --cap-drop ALL --cap-add SETUID --cap-add SETGID \
   --security-opt seccomp=packages/sandbox/docker-seccomp.json \
   --security-opt apparmor=unconfined \
   --security-opt systempaths=unconfined \

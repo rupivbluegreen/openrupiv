@@ -195,10 +195,14 @@ review, per CLAUDE.md non-negotiable #7:
    deltas -- the third, `systempaths=unconfined`, is required so each bwrap
    jail can mount a fresh `/proc` (the kernel's `mount_too_revealing()` check
    blocks it otherwise) and only unmasks the trusted supervisor's own `/proc`,
-   never the jail's -- **plus** a `cap_drop: ALL` (bwrap needs no container
-   capabilities; this is pure post-escape blast-radius reduction). Neither is
-   in the ADR's authoritative text; the "exactly two deltas" wording needs
-   updating to reflect the three `security_opt` deltas and the capability drop.
+   never the jail's -- **plus** a `cap_drop: ALL` that keeps only
+   `SETUID`/`SETGID` (the caps bwrap needs to map uid/gid ranges when it runs
+   as root; a non-root supervisor could drop even those — a further hardening
+   noted for a follow-up), which removes the dangerous default caps
+   (`DAC_OVERRIDE`, `NET_RAW`, `MKNOD`, `SYS_CHROOT`, …) for post-escape
+   blast-radius reduction. Neither is in the ADR's authoritative text; the
+   "exactly two deltas" wording needs updating to reflect the three
+   `security_opt` deltas and the capability drop.
 
 None of these are implementation defects -- the code does the thing the
 ADR's own authoritative sections (the seccomp rule list, the Dockerfile
